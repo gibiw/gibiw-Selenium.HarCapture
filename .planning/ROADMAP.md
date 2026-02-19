@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can save Har to file asynchronously and load it back with correct ISO 8601 timestamp formatting
   4. All optional HAR fields serialize with JsonIgnore(WhenWritingNull) to produce clean, spec-compliant JSON
   5. Model classes are sealed, immutable where appropriate, and optimized for serialization performance
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Solution setup and 18 HAR 1.2 model classes (sealed POCOs with System.Text.Json attributes)
+- [ ] 01-02-PLAN.md — DateTimeOffsetConverter, HarSerializer, and comprehensive test suite
 
 ### Phase 2: Capture Infrastructure
 **Goal**: Core capture primitives enable request/response correlation, lifecycle control, and filtering configuration
@@ -107,7 +107,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. HAR Foundation | 0/2 | Not started | - |
+| 1. HAR Foundation | 0/2 | Planned | - |
 | 2. Capture Infrastructure | 0/2 | Not started | - |
 | 3. CDP Strategy | 0/2 | Not started | - |
 | 4. Fallback Strategy | 0/2 | Not started | - |
