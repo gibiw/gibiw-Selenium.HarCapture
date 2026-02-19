@@ -15,11 +15,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Serialization
 
-- [ ] **SER-01**: User can serialize Har object to JSON string (indented or compact)
-- [ ] **SER-02**: User can deserialize JSON string back to Har object
-- [ ] **SER-03**: User can save Har to file asynchronously
-- [ ] **SER-04**: User can load Har from file asynchronously
-- [ ] **SER-05**: DateTimeOffset fields serialize to ISO 8601 format per HAR spec
+- [x] **SER-01**: User can serialize Har object to JSON string (indented or compact)
+- [x] **SER-02**: User can deserialize JSON string back to Har object
+- [x] **SER-03**: User can save Har to file asynchronously
+- [x] **SER-04**: User can load Har from file asynchronously
+- [x] **SER-05**: DateTimeOffset fields serialize to ISO 8601 format per HAR spec
 
 ### Capture Control
 
@@ -87,11 +87,11 @@ Requirements for initial release. Each maps to roadmap phases.
 | MOD-01 | Phase 1 | Complete |
 | MOD-02 | Phase 1 | Complete |
 | MOD-03 | Phase 1 | Complete |
-| SER-01 | Phase 1 | Pending |
-| SER-02 | Phase 1 | Pending |
-| SER-03 | Phase 1 | Pending |
-| SER-04 | Phase 1 | Pending |
-| SER-05 | Phase 1 | Pending |
+| SER-01 | Phase 1 | Complete |
+| SER-02 | Phase 1 | Complete |
+| SER-03 | Phase 1 | Complete |
+| SER-04 | Phase 1 | Complete |
+| SER-05 | Phase 1 | Complete |
 | CAP-01 | Phase 2 | Pending |
 | CAP-02 | Phase 2 | Pending |
 | CAP-03 | Phase 2 | Pending |
