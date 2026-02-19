@@ -9,9 +9,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### HAR Model
 
-- [ ] **MOD-01**: Library provides HAR 1.2 compliant model classes (17 classes covering full spec)
-- [ ] **MOD-02**: All model classes use System.Text.Json attributes for correct serialization
-- [ ] **MOD-03**: Model supports nullable optional fields with JsonIgnore(WhenWritingNull)
+- [x] **MOD-01**: Library provides HAR 1.2 compliant model classes (17 classes covering full spec)
+- [x] **MOD-02**: All model classes use System.Text.Json attributes for correct serialization
+- [x] **MOD-03**: Model supports nullable optional fields with JsonIgnore(WhenWritingNull)
 
 ### Serialization
 
@@ -84,9 +84,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MOD-01 | Phase 1 | Pending |
-| MOD-02 | Phase 1 | Pending |
-| MOD-03 | Phase 1 | Pending |
+| MOD-01 | Phase 1 | Complete |
+| MOD-02 | Phase 1 | Complete |
+| MOD-03 | Phase 1 | Complete |
 | SER-01 | Phase 1 | Pending |
 | SER-02 | Phase 1 | Pending |
 | SER-03 | Phase 1 | Pending |
