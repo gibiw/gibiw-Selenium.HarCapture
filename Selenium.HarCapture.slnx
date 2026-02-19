@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Selenium.HarCapture/Selenium.HarCapture.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Selenium.HarCapture.Tests/Selenium.HarCapture.Tests.csproj" />
+  </Folder>
 </Solution>
