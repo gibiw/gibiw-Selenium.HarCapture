@@ -23,12 +23,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Capture Control
 
-- [ ] **CAP-01**: User can start and stop network capture on a WebDriver session
+- [x] **CAP-01**: User can start and stop network capture on a WebDriver session
 - [x] **CAP-02**: User can configure CaptureType flags to control what is captured (headers, cookies, content, timings)
 - [x] **CAP-03**: User can set URL include/exclude patterns to filter captured requests
 - [x] **CAP-04**: User can set maximum response body size to limit memory usage
-- [ ] **CAP-05**: User can create multi-page captures with NewPage(pageRef, pageTitle)
-- [ ] **CAP-06**: User can get HAR snapshot (deep clone) while capture continues via GetHar()
+- [x] **CAP-05**: User can create multi-page captures with NewPage(pageRef, pageTitle)
+- [x] **CAP-06**: User can get HAR snapshot (deep clone) while capture continues via GetHar()
 
 ### CDP Capture
 
@@ -92,12 +92,12 @@ Requirements for initial release. Each maps to roadmap phases.
 | SER-03 | Phase 1 | Complete |
 | SER-04 | Phase 1 | Complete |
 | SER-05 | Phase 1 | Complete |
-| CAP-01 | Phase 2 | Pending |
+| CAP-01 | Phase 2 | Complete |
 | CAP-02 | Phase 2 | Complete |
 | CAP-03 | Phase 2 | Complete |
 | CAP-04 | Phase 2 | Complete |
-| CAP-05 | Phase 2 | Pending |
-| CAP-06 | Phase 2 | Pending |
+| CAP-05 | Phase 2 | Complete |
+| CAP-06 | Phase 2 | Complete |
 | CDP-01 | Phase 3 | Pending |
 | CDP-02 | Phase 3 | Pending |
 | CDP-03 | Phase 3 | Pending |
