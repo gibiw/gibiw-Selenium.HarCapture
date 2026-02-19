@@ -13,4 +13,8 @@
     <PackageReference Include="IsExternalInit" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Selenium.HarCapture.Tests" />
+  </ItemGroup>
+
 </Project>
