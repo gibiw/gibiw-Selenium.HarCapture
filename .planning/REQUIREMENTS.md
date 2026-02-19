@@ -87,21 +87,21 @@ Requirements for initial release. Each maps to roadmap phases.
 | MOD-01 | Phase 1 | Pending |
 | MOD-02 | Phase 1 | Pending |
 | MOD-03 | Phase 1 | Pending |
-| SER-01 | Phase 2 | Pending |
-| SER-02 | Phase 2 | Pending |
-| SER-03 | Phase 2 | Pending |
-| SER-04 | Phase 2 | Pending |
-| SER-05 | Phase 2 | Pending |
-| CAP-01 | Phase 3 | Pending |
-| CAP-02 | Phase 3 | Pending |
-| CAP-03 | Phase 3 | Pending |
-| CAP-04 | Phase 3 | Pending |
-| CAP-05 | Phase 3 | Pending |
-| CAP-06 | Phase 3 | Pending |
-| CDP-01 | Phase 4 | Pending |
-| CDP-02 | Phase 4 | Pending |
-| CDP-03 | Phase 4 | Pending |
-| CDP-04 | Phase 4 | Pending |
+| SER-01 | Phase 1 | Pending |
+| SER-02 | Phase 1 | Pending |
+| SER-03 | Phase 1 | Pending |
+| SER-04 | Phase 1 | Pending |
+| SER-05 | Phase 1 | Pending |
+| CAP-01 | Phase 2 | Pending |
+| CAP-02 | Phase 2 | Pending |
+| CAP-03 | Phase 2 | Pending |
+| CAP-04 | Phase 2 | Pending |
+| CAP-05 | Phase 2 | Pending |
+| CAP-06 | Phase 2 | Pending |
+| CDP-01 | Phase 3 | Pending |
+| CDP-02 | Phase 3 | Pending |
+| CDP-03 | Phase 3 | Pending |
+| CDP-04 | Phase 3 | Pending |
 | FBK-01 | Phase 4 | Pending |
 | FBK-02 | Phase 4 | Pending |
 | FBK-03 | Phase 4 | Pending |
@@ -120,4 +120,4 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 after roadmap creation*
