@@ -1,0 +1,393 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using FluentAssertions;
+using Selenium.HarCapture.Capture;
+using Selenium.HarCapture.Capture.Strategies;
+using Selenium.HarCapture.Models;
+using Xunit;
+
+namespace Selenium.HarCapture.Tests.Capture;
+
+public sealed class HarCaptureSessionTests
+{
+    [Fact]
+    public void Start_InitializesHar_WithVersion12()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Version.Should().Be("1.2");
+    }
+
+    [Fact]
+    public void Start_InitializesHar_WithCreatorName()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var options = new CaptureOptions { CreatorName = "CustomCreator" };
+        var session = new HarCaptureSession(strategy, options);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Creator.Name.Should().Be("CustomCreator");
+    }
+
+    [Fact]
+    public void Start_WithInitialPage_CreatesPage()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        session.Start("page1", "Home");
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Pages.Should().NotBeNull();
+        har.Log.Pages.Should().HaveCount(1);
+        har.Log.Pages![0].Id.Should().Be("page1");
+        har.Log.Pages[0].Title.Should().Be("Home");
+    }
+
+    [Fact]
+    public void Start_WithoutInitialPage_HasEmptyPages()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public void Start_WhenAlreadyStarted_ThrowsInvalidOperation()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act
+        var act = () => session.Start();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Capture is already started.");
+    }
+
+    [Fact]
+    public void Stop_ReturnsHar()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act
+        var har = session.Stop();
+
+        // Assert
+        har.Should().NotBeNull();
+        har.Log.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Stop_WhenNotStarted_ThrowsInvalidOperation()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        var act = () => session.Stop();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Capture is not started.");
+    }
+
+    [Fact]
+    public void NewPage_AddsPageToHar()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start("p1", "Home");
+
+        // Act
+        session.NewPage("p2", "About");
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Pages.Should().NotBeNull();
+        har.Log.Pages.Should().HaveCount(2);
+        har.Log.Pages![1].Id.Should().Be("p2");
+        har.Log.Pages[1].Title.Should().Be("About");
+    }
+
+    [Fact]
+    public void NewPage_WhenNotCapturing_ThrowsInvalidOperation()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        var act = () => session.NewPage("p1", "Home");
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Capture is not started.");
+    }
+
+    [Fact]
+    public void NewPage_SetsCurrentPageRef_OnNewEntries()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start("p1", "Home");
+
+        // Act - simulate entry on first page
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/page1"), "req1");
+        var har1 = session.GetHar();
+
+        // Act - create new page and simulate entry
+        session.NewPage("p2", "About");
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/page2"), "req2");
+        var har2 = session.GetHar();
+
+        // Assert
+        har1.Log.Entries.Should().HaveCount(1);
+        har1.Log.Entries[0].PageRef.Should().Be("p1");
+
+        har2.Log.Entries.Should().HaveCount(2);
+        har2.Log.Entries[0].PageRef.Should().Be("p1");
+        har2.Log.Entries[1].PageRef.Should().Be("p2");
+    }
+
+    [Fact]
+    public void GetHar_ReturnsDeepClone()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/test"), "req1");
+
+        // Act - get two clones
+        var har1 = session.GetHar();
+        var har2 = session.GetHar();
+
+        // Assert - they should be different instances
+        har1.Should().NotBeSameAs(har2);
+        har1.Log.Should().NotBeSameAs(har2.Log);
+        har1.Log.Entries.Should().NotBeSameAs(har2.Log.Entries);
+
+        // Verify deep independence - modifying one doesn't affect the other
+        har1.Log.Entries.Should().HaveCount(1);
+        har2.Log.Entries.Should().HaveCount(1);
+
+        // Clear entries in har1 (this modifies the list)
+        ((List<HarEntry>)har1.Log.Entries).Clear();
+
+        // har2 should still have its entry
+        har2.Log.Entries.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void GetHar_WhenNotCapturing_ThrowsInvalidOperation()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        var act = () => session.GetHar();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("Capture is not started.");
+    }
+
+    [Fact]
+    public void EntryCompleted_AddsEntryToHar()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Entries.Should().HaveCount(1);
+        har.Log.Entries[0].Request.Url.Should().Be("https://example.com/api/test");
+    }
+
+    [Fact]
+    public void EntryCompleted_FiltersExcludedUrls()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var options = new CaptureOptions
+        {
+            UrlExcludePatterns = new[] { "**/*.png" }
+        };
+        var session = new HarCaptureSession(strategy, options);
+        session.Start();
+
+        // Act - simulate entry with .png URL (should be filtered)
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/logo.png"), "req1");
+        var har1 = session.GetHar();
+
+        // Act - simulate entry with .html URL (should be captured)
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/page.html"), "req2");
+        var har2 = session.GetHar();
+
+        // Assert
+        har1.Log.Entries.Should().HaveCount(0, "PNG entry should be filtered");
+        har2.Log.Entries.Should().HaveCount(1, "HTML entry should be captured");
+    }
+
+    [Fact]
+    public void Dispose_CleansUpStrategy()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act
+        session.Dispose();
+
+        // Assert - simulate entry after dispose should not affect anything
+        strategy.SimulateEntry(CreateTestEntry("https://example.com/test"), "req1");
+
+        // Verify GetHar throws after dispose
+        var act = () => session.GetHar();
+        act.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public void Dispose_WhenCalledTwice_DoesNotThrow()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        session.Dispose();
+        var act = () => session.Dispose();
+
+        // Assert
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ActiveStrategyName_ReturnsStrategyName()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        var strategyName = session.ActiveStrategyName;
+
+        // Assert
+        strategyName.Should().Be("Mock");
+    }
+
+    private static HarEntry CreateTestEntry(string url = "https://example.com/page")
+    {
+        return new HarEntry
+        {
+            StartedDateTime = DateTimeOffset.UtcNow,
+            Time = 100,
+            Request = new HarRequest
+            {
+                Method = "GET",
+                Url = url,
+                HttpVersion = "HTTP/1.1",
+                Cookies = new List<HarCookie>(),
+                Headers = new List<HarHeader>(),
+                QueryString = new List<HarQueryString>(),
+                HeadersSize = -1,
+                BodySize = -1
+            },
+            Response = new HarResponse
+            {
+                Status = 200,
+                StatusText = "OK",
+                HttpVersion = "HTTP/1.1",
+                Cookies = new List<HarCookie>(),
+                Headers = new List<HarHeader>(),
+                Content = new HarContent
+                {
+                    Size = 0,
+                    MimeType = "text/html"
+                },
+                RedirectURL = "",
+                HeadersSize = -1,
+                BodySize = -1
+            },
+            Cache = new HarCache(),
+            Timings = new HarTimings
+            {
+                Send = 1,
+                Wait = 50,
+                Receive = 49
+            }
+        };
+    }
+
+    private sealed class MockCaptureStrategy : INetworkCaptureStrategy
+    {
+        public string StrategyName => "Mock";
+        public bool SupportsDetailedTimings => true;
+        public bool SupportsResponseBody => true;
+        public event Action<HarEntry, string>? EntryCompleted;
+        private bool _started;
+
+        public Task StartAsync(CaptureOptions options)
+        {
+            _started = true;
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync()
+        {
+            _started = false;
+            return Task.CompletedTask;
+        }
+
+        public void Dispose()
+        {
+        }
+
+        // Test helper to simulate an entry arriving
+        public void SimulateEntry(HarEntry entry, string requestId)
+        {
+            EntryCompleted?.Invoke(entry, requestId);
+        }
+    }
+}
