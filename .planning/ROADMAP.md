@@ -47,11 +47,11 @@ Plans:
   4. User can create multi-page captures with NewPage(pageRef, pageTitle) that organize entries into HAR pages
   5. User can call GetHar() to retrieve a deep-cloned snapshot while capture continues without blocking or race conditions
   6. ICaptureStrategy interface and RequestResponseCorrelator use ConcurrentDictionary with Lazy pattern for thread-safe correlation
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Configuration system (CaptureType, CaptureOptions), strategy interface (INetworkCaptureStrategy), and internal utilities (RequestResponseCorrelator, UrlPatternMatcher)
+- [ ] 02-02-PLAN.md — HarCaptureSession orchestrator and comprehensive unit tests for all Phase 2 components
 
 ### Phase 3: CDP Strategy
 **Goal**: Chrome DevTools Protocol captures complete network traffic with detailed timings and response bodies on Chromium browsers
@@ -107,8 +107,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. HAR Foundation | 0/2 | Planned | - |
-| 2. Capture Infrastructure | 0/2 | Not started | - |
+| 1. HAR Foundation | 2/2 | Complete | 2026-02-19 |
+| 2. Capture Infrastructure | 0/2 | Planned | - |
 | 3. CDP Strategy | 0/2 | Not started | - |
 | 4. Fallback Strategy | 0/2 | Not started | - |
 | 5. Public API | 0/2 | Not started | - |
