@@ -1,0 +1,74 @@
+using System;
+using System.Text.Json.Serialization;
+
+namespace Selenium.HarCapture.Models;
+
+/// <summary>
+/// Represents a single HTTP request/response pair captured in the HAR file.
+/// </summary>
+public sealed class HarEntry
+{
+    /// <summary>
+    /// Gets or initializes the date and time when the request was started.
+    /// </summary>
+    [JsonPropertyName("startedDateTime")]
+    public DateTimeOffset StartedDateTime { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the total elapsed time of the request in milliseconds.
+    /// </summary>
+    [JsonPropertyName("time")]
+    public double Time { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the HTTP request details.
+    /// </summary>
+    [JsonPropertyName("request")]
+    public HarRequest Request { get; init; } = null!;
+
+    /// <summary>
+    /// Gets or initializes the HTTP response details.
+    /// </summary>
+    [JsonPropertyName("response")]
+    public HarResponse Response { get; init; } = null!;
+
+    /// <summary>
+    /// Gets or initializes the cache usage information.
+    /// </summary>
+    [JsonPropertyName("cache")]
+    public HarCache Cache { get; init; } = null!;
+
+    /// <summary>
+    /// Gets or initializes the detailed timing breakdown for the request.
+    /// </summary>
+    [JsonPropertyName("timings")]
+    public HarTimings Timings { get; init; } = null!;
+
+    /// <summary>
+    /// Gets or initializes the reference to the parent page (if applicable).
+    /// </summary>
+    [JsonPropertyName("pageref")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PageRef { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the IP address of the server that was connected to.
+    /// </summary>
+    [JsonPropertyName("serverIPAddress")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ServerIPAddress { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the unique identifier of the connection used.
+    /// </summary>
+    [JsonPropertyName("connection")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Connection { get; init; }
+
+    /// <summary>
+    /// Gets or initializes an optional comment.
+    /// </summary>
+    [JsonPropertyName("comment")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Comment { get; init; }
+}
