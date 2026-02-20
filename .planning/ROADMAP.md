@@ -63,11 +63,11 @@ Plans:
   3. CDP capture retrieves response bodies via Network.getResponseBody immediately after responseReceived to avoid timing race conditions
   4. CDP strategy handles event ordering races (requestWillBeSentExtraInfo vs requestWillBeSent), HTTP redirects (reusing requestId), and 304/204 status codes without duplicate entries or missing data
   5. CDP event subscriptions properly clean up via IDisposable (Network.disable, unsubscribe all handlers) to prevent memory leaks
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Selenium.WebDriver dependency and CdpTimingMapper (TDD: ResourceTiming to HAR timings conversion)
+- [ ] 03-02-PLAN.md — CdpNetworkCaptureStrategy implementation and unit tests
 
 ### Phase 4: Fallback Strategy
 **Goal**: Selenium INetwork API provides cross-browser capture fallback when CDP is unavailable
