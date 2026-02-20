@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using OpenQA.Selenium;
+using OpenQA.Selenium.DevTools;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
@@ -317,6 +320,57 @@ public sealed class HarCaptureSessionTests
         strategyName.Should().Be("Mock");
     }
 
+    [Fact]
+    public void Constructor_WithNullDriver_ThrowsArgumentNullException()
+    {
+        // Act & Assert
+        Action act = () => new HarCaptureSession((IWebDriver)null!);
+
+        act.Should().Throw<ArgumentNullException>()
+            .WithParameterName("driver");
+    }
+
+    [Fact]
+    public void Constructor_WithNonDevToolsDriver_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+
+        // Act & Assert
+        Action act = () => new HarCaptureSession(driver);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*IDevTools*");
+    }
+
+    [Fact]
+    public void Constructor_WithForceSeleniumNetworkApi_CreatesSession()
+    {
+        // Arrange
+        var driver = new FakeDevToolsDriver(); // Use FakeDevToolsDriver
+        var options = new CaptureOptions { ForceSeleniumNetworkApi = true };
+
+        // Act
+        var session = new HarCaptureSession(driver, options);
+
+        // Assert
+        session.ActiveStrategyName.Should().Be("INetwork");
+    }
+
+    [Fact]
+    public void Constructor_WithCdpFailureDriver_FallsBackToINetwork()
+    {
+        // Arrange
+        var driver = new FakeDevToolsDriver(); // GetDevToolsSession throws
+
+        // Act
+        var session = new HarCaptureSession(driver);
+
+        // Assert
+        session.ActiveStrategyName.Should().Be("INetwork");
+        session.Should().NotBeNull();
+    }
+
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
     {
         return new HarEntry
@@ -388,6 +442,150 @@ public sealed class HarCaptureSessionTests
         public void SimulateEntry(HarEntry entry, string requestId)
         {
             EntryCompleted?.Invoke(entry, requestId);
+        }
+    }
+
+    /// <summary>
+    /// Minimal stub driver that does NOT implement IDevTools.
+    /// Used to test that unsupported browsers throw clear exceptions.
+    /// </summary>
+    private class NonDevToolsDriver : IWebDriver
+    {
+        public string Url
+        {
+            get => throw new NotImplementedException();
+            set => throw new NotImplementedException();
+        }
+
+        public string Title => throw new NotImplementedException();
+
+        public string PageSource => throw new NotImplementedException();
+
+        public string CurrentWindowHandle => throw new NotImplementedException();
+
+        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
+
+        public void Close()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Quit()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IOptions Manage()
+        {
+            throw new NotImplementedException();
+        }
+
+        public INavigation Navigate()
+        {
+            throw new NotImplementedException();
+        }
+
+        public ITargetLocator SwitchTo()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IWebElement FindElement(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ReadOnlyCollection<IWebElement> FindElements(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
+        {
+            // No-op
+        }
+    }
+
+    /// <summary>
+    /// Fake driver that implements IDevTools but GetDevToolsSession always throws.
+    /// Used to test runtime CDP failure fallback logic.
+    /// </summary>
+    private class FakeDevToolsDriver : IWebDriver, IDevTools
+    {
+        public string Url
+        {
+            get => throw new NotImplementedException();
+            set => throw new NotImplementedException();
+        }
+
+        public string Title => throw new NotImplementedException();
+
+        public string PageSource => throw new NotImplementedException();
+
+        public string CurrentWindowHandle => throw new NotImplementedException();
+
+        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
+
+        public bool HasActiveDevToolsSession => false;
+
+        public void Close()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Quit()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IOptions Manage()
+        {
+            throw new NotImplementedException();
+        }
+
+        public INavigation Navigate()
+        {
+            throw new NotImplementedException();
+        }
+
+        public ITargetLocator SwitchTo()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IWebElement FindElement(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ReadOnlyCollection<IWebElement> FindElements(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
+        {
+            // No-op
+        }
+
+        public DevToolsSession GetDevToolsSession()
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public DevToolsSession GetDevToolsSession(int devToolsProtocolVersion)
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public DevToolsSession GetDevToolsSession(DevToolsOptions options)
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public void CloseDevToolsSession()
+        {
+            // No-op
         }
     }
 }

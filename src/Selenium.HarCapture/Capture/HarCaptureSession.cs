@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using OpenQA.Selenium;
 using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
@@ -55,6 +56,26 @@ public sealed class HarCaptureSession : IDisposable
     }
 
     /// <summary>
+    /// Initializes a new instance with automatic strategy selection based on driver capabilities.
+    /// Uses CDP if available, falls back to INetwork if CDP session creation fails.
+    /// </summary>
+    /// <param name="driver">The WebDriver instance to capture network traffic from.</param>
+    /// <param name="options">Configuration options for capture behavior. If null, default options are used.</param>
+    /// <exception cref="ArgumentNullException">Thrown when driver is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the driver does not support network capture (no IDevTools).</exception>
+    public HarCaptureSession(IWebDriver driver, CaptureOptions? options = null)
+    {
+        if (driver == null)
+        {
+            throw new ArgumentNullException(nameof(driver));
+        }
+
+        _options = options ?? new CaptureOptions();
+        _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
+        _strategy = StrategyFactory.Create(driver, _options);
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="HarCaptureSession"/> class with a specific strategy.
     /// </summary>
     /// <param name="strategy">The network capture strategy to use.</param>
@@ -91,7 +112,7 @@ public sealed class HarCaptureSession : IDisposable
 
         if (_strategy == null)
         {
-            throw new InvalidOperationException("No capture strategy configured. Strategy creation will be available in Phase 3/4.");
+            throw new InvalidOperationException("No capture strategy configured. Use the constructor that accepts IWebDriver for automatic strategy selection.");
         }
 
         _strategy.EntryCompleted += OnEntryCompleted;
