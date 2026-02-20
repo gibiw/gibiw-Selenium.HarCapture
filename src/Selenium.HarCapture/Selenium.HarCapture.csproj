@@ -5,6 +5,17 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>Selenium.HarCapture</RootNamespace>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Selenium.HarCapture</PackageId>
+    <Description>Capture HAR 1.2 (HTTP Archive) files from Selenium WebDriver sessions. Supports Chrome DevTools Protocol for detailed timings and response bodies, with automatic fallback to INetwork API for cross-browser compatibility.</Description>
+    <Authors>gibiw</Authors>
+    <PackageTags>selenium;har;http-archive;webdriver;cdp;network;capture;testing</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/gibiw/Selenium.Hars</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/gibiw/Selenium.Hars.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +28,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Selenium.HarCapture.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
