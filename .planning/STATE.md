@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-19)
 
 **Core value:** Developers can capture complete HTTP traffic from Selenium browser sessions into standard HAR format with a single line of code — no external proxies, no complex setup.
-**Current focus:** Phase 4 - Fallback Strategy
+**Current focus:** Phase 5 - Public API
 
 ## Current Position
 
-Phase: 4 of 5 (Fallback Strategy)
-Plan: 2 of 2 in current phase
-Status: Completed
-Last activity: 2026-02-20 — Completed 04-02-PLAN.md (StrategyFactory and Auto-Selection)
+Phase: 5 of 5 (Public API)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-20 — Completed 05-01-PLAN.md (HarCapture Public Facade)
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 3.7 minutes
-- Total execution time: 0.56 hours
+- Total plans completed: 9
+- Average duration: 3.5 minutes
+- Total execution time: 0.59 hours
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: [████████░░] 80%
 | 02    | 2     | 10m   | 5m       |
 | 03    | 2     | 7.5m  | 3.8m     |
 | 04    | 2     | 5.7m  | 2.85m    |
+| 05    | 1     | 3.2m  | 3.2m     |
 
 **Recent Trend:**
-- Last 5 plans: 5m, 4m, 3.5m, 3m, 2.7m
-- Trend: Improving velocity
+- Last 5 plans: 4m, 3.5m, 3m, 2.7m, 3.2m
+- Trend: Stable velocity
 
 *Updated after each plan completion*
 
@@ -48,6 +49,7 @@ Progress: [████████░░] 80%
 | Phase 03 P02 | 3.5m | 2 tasks | 2 files |
 | Phase 04 P01 | 3m | 2 tasks | 2 files |
 | Phase 04 P02 | 2.7m | 2 tasks | 4 files |
+| Phase 05 P01 | 194 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -80,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase 04-02]: Test CDP session creation by creating and immediately disposing session
 - [Phase 04-02]: Fall back to INetwork when CDP session creation throws any exception
 - [Phase 04-02]: Honor ForceSeleniumNetworkApi flag at factory level (bypass detection)
+- [Phase 05-01]: Mutation-based fluent API for CaptureOptions (return this) matching existing mutable design
+- [Phase 05-01]: Internal HarCapture constructor accepting HarCaptureSession for testability via InternalsVisibleTo
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-20T08:18:17Z
-Stopped at: Completed 04-02-PLAN.md
-Resume file: .planning/phases/04-fallback-strategy/04-02-SUMMARY.md
+Last session: 2026-02-20T09:19:56Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: .planning/phases/05-public-api/05-01-SUMMARY.md
