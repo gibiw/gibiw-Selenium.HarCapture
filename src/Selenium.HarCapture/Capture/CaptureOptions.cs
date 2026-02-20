@@ -61,4 +61,69 @@ public sealed class CaptureOptions
     /// Exclude patterns take precedence over include patterns.
     /// </remarks>
     public IReadOnlyList<string>? UrlExcludePatterns { get; set; }
+
+    /// <summary>
+    /// Sets the types of traffic data to capture.
+    /// </summary>
+    /// <param name="types">The capture types to configure.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithCaptureTypes(CaptureType types)
+    {
+        CaptureTypes = types;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum size in bytes for response bodies to capture.
+    /// </summary>
+    /// <param name="maxSize">The maximum response body size in bytes. Use 0 for unlimited.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithMaxResponseBodySize(long maxSize)
+    {
+        MaxResponseBodySize = maxSize;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets URL patterns to include for capture.
+    /// </summary>
+    /// <param name="patterns">Glob patterns for URLs to include (e.g., "https://api.example.com/**").</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithUrlIncludePatterns(params string[] patterns)
+    {
+        UrlIncludePatterns = patterns;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets URL patterns to exclude from capture.
+    /// </summary>
+    /// <param name="patterns">Glob patterns for URLs to exclude (e.g., "**/*.png").</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithUrlExcludePatterns(params string[] patterns)
+    {
+        UrlExcludePatterns = patterns;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the creator name to include in the HAR file metadata.
+    /// </summary>
+    /// <param name="name">The creator tool name.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithCreatorName(string name)
+    {
+        CreatorName = name;
+        return this;
+    }
+
+    /// <summary>
+    /// Forces the use of Selenium's INetwork API even if CDP is available.
+    /// </summary>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions ForceSeleniumNetwork()
+    {
+        ForceSeleniumNetworkApi = true;
+        return this;
+    }
 }
