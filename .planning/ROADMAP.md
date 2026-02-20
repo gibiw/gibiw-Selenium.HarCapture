@@ -94,11 +94,11 @@ Plans:
   3. CaptureOptions class provides fluent API for CaptureType flags, URL patterns, body size limits, and multi-page configuration
   4. HarCapture and all strategies are thread-safe for concurrent GetHar() calls and mutation operations using ConcurrentDictionary and deep-clone snapshots via JSON round-trip
   5. All async methods use ConfigureAwait(false) to prevent deadlocks when consumers call synchronously (.Result or .Wait())
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md — HarCapture facade with dual disposal (IDisposable + IAsyncDisposable), fluent CaptureOptions, and unit tests (API-01, API-03, API-04, THR-01, THR-02, THR-03)
+- [ ] 05-02-PLAN.md — WebDriver extension methods (StartHarCapture, CaptureHarAsync, CaptureHar) and unit tests (API-02)
 
 ## Progress
 
@@ -110,5 +110,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. HAR Foundation | 2/2 | Complete | 2026-02-19 |
 | 2. Capture Infrastructure | 2/2 | Complete | 2026-02-19 |
 | 3. CDP Strategy | 2/2 | Complete | 2026-02-20 |
-| 4. Fallback Strategy | 1/2 | In Progress | - |
+| 4. Fallback Strategy | 2/2 | Complete | 2026-02-20 |
 | 5. Public API | 0/2 | Not started | - |
