@@ -33,9 +33,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### CDP Capture
 
 - [ ] **CDP-01**: Library captures network traffic via Chrome DevTools Protocol on Chromium browsers
-- [ ] **CDP-02**: CDP capture includes detailed timing data (DNS, connect, SSL, send, wait, receive)
+- [x] **CDP-02**: CDP capture includes detailed timing data (DNS, connect, SSL, send, wait, receive)
 - [ ] **CDP-03**: CDP capture retrieves response bodies via Network.getResponseBody
-- [ ] **CDP-04**: CDP ResourceTiming maps correctly to HAR timings format
+- [x] **CDP-04**: CDP ResourceTiming maps correctly to HAR timings format
 
 ### Fallback Capture
 
@@ -99,9 +99,9 @@ Requirements for initial release. Each maps to roadmap phases.
 | CAP-05 | Phase 2 | Complete |
 | CAP-06 | Phase 2 | Complete |
 | CDP-01 | Phase 3 | Pending |
-| CDP-02 | Phase 3 | Pending |
+| CDP-02 | Phase 3 | Complete |
 | CDP-03 | Phase 3 | Pending |
-| CDP-04 | Phase 3 | Pending |
+| CDP-04 | Phase 3 | Complete |
 | FBK-01 | Phase 4 | Pending |
 | FBK-02 | Phase 4 | Pending |
 | FBK-03 | Phase 4 | Pending |
