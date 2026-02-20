@@ -4,5 +4,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Selenium.HarCapture.Tests/Selenium.HarCapture.Tests.csproj" />
+    <Project Path="tests/Selenium.HarCapture.IntegrationTests/Selenium.HarCapture.IntegrationTests.csproj" />
   </Folder>
 </Solution>
