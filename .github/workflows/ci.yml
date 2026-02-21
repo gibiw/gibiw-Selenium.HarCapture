@@ -23,6 +23,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: '142'
+
       - name: Restore dependencies
         run: dotnet restore
 
