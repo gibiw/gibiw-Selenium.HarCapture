@@ -1,5 +1,11 @@
 # Selenium.HarCapture
 
+[![CI](https://github.com/gibiw/gibiw-Selenium.HarCapture/actions/workflows/ci.yml/badge.svg)](https://github.com/gibiw/gibiw-Selenium.HarCapture/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Selenium.HarCapture.svg)](https://www.nuget.org/packages/Selenium.HarCapture/)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/Selenium.HarCapture.svg)](https://www.nuget.org/packages/Selenium.HarCapture/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![.NET Standard](https://img.shields.io/badge/.NET%20Standard-2.0-purple.svg)](https://docs.microsoft.com/en-us/dotnet/standard/net-standard)
+
 A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDriver sessions. Supports Chrome DevTools Protocol (CDP) for detailed timings and response bodies, with automatic fallback to Selenium's INetwork API for cross-browser compatibility.
 
 ## Features
