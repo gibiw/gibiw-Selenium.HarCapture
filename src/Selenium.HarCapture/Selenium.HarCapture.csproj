@@ -9,7 +9,8 @@
     <!-- NuGet package metadata -->
     <PackageId>Selenium.HarCapture</PackageId>
     <Description>Capture HAR 1.2 (HTTP Archive) files from Selenium WebDriver sessions. Supports Chrome DevTools Protocol for detailed timings and response bodies, with automatic fallback to INetwork API for cross-browser compatibility.</Description>
-    <Authors>gibiw</Authors>
+    <Authors>Dmitry Gridnev</Authors>
+    <Email>dmit.gridnev@gmail.com</Email>
     <PackageTags>selenium;har;http-archive;webdriver;cdp;network;capture;testing</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/gibiw/Selenium.Hars</PackageProjectUrl>
