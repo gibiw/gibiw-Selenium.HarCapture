@@ -12,6 +12,7 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 
 - **HAR 1.2 compliant** output, openable in Chrome/Firefox DevTools
 - **Two capture strategies**: CDP (detailed timings, response bodies) and INetwork (cross-browser)
+- **Automatic CDP version discovery** via assembly scanning — zero code changes when Selenium updates
 - **Automatic strategy selection** with manual override
 - **URL filtering** via glob patterns (include/exclude)
 - **Multi-page capture** support
@@ -337,7 +338,7 @@ Integration tests launch a real Chrome browser (headless) and a local ASP.NET Co
 
 #### Chrome Version Compatibility
 
-The CDP strategy requires Chrome version matching the Selenium.WebDriver DevTools version. With Selenium 4.40.0, this is Chrome 142-144. Tests that require CDP automatically detect the installed Chrome version and skip gracefully if incompatible.
+The CDP strategy requires Chrome version matching the Selenium.WebDriver DevTools version. The library automatically discovers all available CDP versions at runtime via assembly scanning — no code changes needed when Selenium adds or drops CDP versions. Tests that require CDP automatically detect the installed Chrome version and skip gracefully if incompatible.
 
 The INetwork strategy works with any Chrome version.
 
@@ -356,6 +357,10 @@ dotnet test
 - **TestWebServer**: ASP.NET Core minimal API on `127.0.0.1:0` (dynamic port). Provides endpoints: `/`, `/api/data`, `/api/large`, `/api/cookies`, `/with-fetch`, `/page2`, `/redirect`, `/api/slow`
 - **IntegrationTestBase**: Creates a fresh Chrome headless instance per test class. Provides `NavigateTo()`, `WaitForNetworkIdle()`, `StartCapture()`, `IsCdpCompatible()` helpers
 - **IntegrationTestCollection**: Shares `TestWebServer` across test classes via xUnit `ICollectionFixture`
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
 
 ## License
 
