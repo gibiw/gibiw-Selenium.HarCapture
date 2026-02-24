@@ -447,6 +447,191 @@ public sealed class HarSerializerTests
             .WithParameterName("json");
     }
 
+    [Fact]
+    public void Save_WritesCompleteValidJson()
+    {
+        // Arrange
+        var har = CreateHarWithMultipleEntries(5);
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            // Act
+            HarSerializer.Save(har, tempFile);
+
+            // Assert
+            File.Exists(tempFile).Should().BeTrue("file should be created");
+            var content = File.ReadAllText(tempFile);
+            content.Should().Contain("\"log\"");
+
+            // Verify it's valid JSON by deserializing back
+            var loaded = HarSerializer.Deserialize(content);
+            loaded.Should().NotBeNull();
+            loaded.Log.Entries.Should().HaveCount(5, "all entries should be present");
+
+            // Verify file size
+            var fileInfo = new FileInfo(tempFile);
+            fileInfo.Length.Should().BeGreaterThan(0, "file should not be empty");
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void Save_LargePayload_WritesWithoutTruncation()
+    {
+        // Arrange - Create HAR with large response bodies (>1.5MB total)
+        var har = CreateHarWithLargePayload(3, 500_000); // 3 entries, 500KB each
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            // Act
+            HarSerializer.Save(har, tempFile);
+
+            // Assert
+            var expectedJson = HarSerializer.Serialize(har);
+            var expectedLength = System.Text.Encoding.UTF8.GetByteCount(expectedJson);
+
+            var fileInfo = new FileInfo(tempFile);
+            fileInfo.Length.Should().Be(expectedLength, "file size should match in-memory serialization length (no truncation)");
+
+            // Verify deserialization works
+            var loaded = HarSerializer.Load(tempFile);
+            loaded.Should().NotBeNull();
+            loaded.Log.Entries.Should().HaveCount(3, "all entries should be present");
+
+            // Verify body lengths are preserved
+            for (int i = 0; i < 3; i++)
+            {
+                var originalBodyLength = har.Log.Entries[i].Response.Content.Text?.Length ?? 0;
+                var loadedBodyLength = loaded.Log.Entries[i].Response.Content.Text?.Length ?? 0;
+                loadedBodyLength.Should().Be(originalBodyLength, $"entry {i} body length should match");
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void SaveAsync_CalledSynchronously_WritesCompleteFile()
+    {
+        // Arrange - Simulate user's exact pattern: SaveAsync().GetAwaiter().GetResult()
+        var har = CreateHarWithLargePayload(3, 400_000); // >1MB total
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            // Act - Call async method synchronously (user's pattern)
+            HarSerializer.SaveAsync(har, tempFile).GetAwaiter().GetResult();
+
+            // Assert
+            var expectedJson = HarSerializer.Serialize(har);
+            var expectedLength = System.Text.Encoding.UTF8.GetByteCount(expectedJson);
+
+            File.Exists(tempFile).Should().BeTrue("file should be created");
+
+            var fileInfo = new FileInfo(tempFile);
+            fileInfo.Length.Should().Be(expectedLength, "file size should match in-memory serialization length (no truncation)");
+
+            // Verify it's valid JSON
+            var loaded = HarSerializer.Load(tempFile);
+            loaded.Should().NotBeNull();
+            loaded.Log.Entries.Should().HaveCount(3, "all entries should be present");
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void Load_ValidFile_ReturnsHar()
+    {
+        // Arrange
+        var original = CreateSampleHar();
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            HarSerializer.Save(original, tempFile);
+
+            // Act
+            var loaded = HarSerializer.Load(tempFile);
+
+            // Assert
+            loaded.Should().NotBeNull();
+            loaded.Log.Version.Should().Be(original.Log.Version);
+            loaded.Log.Creator.Name.Should().Be(original.Log.Creator.Name);
+            loaded.Log.Entries.Should().HaveCount(original.Log.Entries.Count);
+
+            // Verify key fields from first entry
+            var originalEntry = original.Log.Entries[0];
+            var loadedEntry = loaded.Log.Entries[0];
+            loadedEntry.Request.Method.Should().Be(originalEntry.Request.Method);
+            loadedEntry.Request.Url.Should().Be(originalEntry.Request.Url);
+            loadedEntry.Response.Status.Should().Be(originalEntry.Response.Status);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void Save_NullHar_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            // Act
+            var act = () => HarSerializer.Save(null!, tempFile);
+
+            // Assert
+            act.Should().Throw<ArgumentNullException>()
+                .WithParameterName("har");
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void Load_MissingFile_ThrowsFileNotFoundException()
+    {
+        // Arrange
+        var nonExistentPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".har");
+
+        // Act
+        var act = () => HarSerializer.Load(nonExistentPath);
+
+        // Assert
+        act.Should().Throw<FileNotFoundException>()
+            .WithMessage($"*{nonExistentPath}*");
+    }
+
     // Helper methods
 
     private static Har CreateMinimalHar()
@@ -634,6 +819,148 @@ public sealed class HarSerializerTests
                     }
                 },
                 Comment = "Test log"
+            }
+        };
+    }
+
+    private static Har CreateHarWithMultipleEntries(int entryCount)
+    {
+        var startTime = DateTimeOffset.UtcNow;
+        var entries = new List<HarEntry>();
+
+        for (int i = 0; i < entryCount; i++)
+        {
+            entries.Add(new HarEntry
+            {
+                StartedDateTime = startTime.AddSeconds(i),
+                Time = 100,
+                Request = new HarRequest
+                {
+                    Method = "GET",
+                    Url = $"https://example.com/resource{i}",
+                    HttpVersion = "HTTP/1.1",
+                    Cookies = new List<HarCookie>(),
+                    Headers = new List<HarHeader>
+                    {
+                        new HarHeader { Name = "User-Agent", Value = "Test" }
+                    },
+                    QueryString = new List<HarQueryString>(),
+                    HeadersSize = -1,
+                    BodySize = 0
+                },
+                Response = new HarResponse
+                {
+                    Status = 200,
+                    StatusText = "OK",
+                    HttpVersion = "HTTP/1.1",
+                    Cookies = new List<HarCookie>(),
+                    Headers = new List<HarHeader>
+                    {
+                        new HarHeader { Name = "Content-Type", Value = "text/html" }
+                    },
+                    Content = new HarContent
+                    {
+                        Size = 100,
+                        MimeType = "text/html",
+                        Text = $"<html><body>Content {i}</body></html>"
+                    },
+                    RedirectURL = "",
+                    HeadersSize = -1,
+                    BodySize = -1
+                },
+                Cache = new HarCache(),
+                Timings = new HarTimings
+                {
+                    Send = 1,
+                    Wait = 50,
+                    Receive = 49
+                }
+            });
+        }
+
+        return new Har
+        {
+            Log = new HarLog
+            {
+                Version = "1.2",
+                Creator = new HarCreator
+                {
+                    Name = "Selenium.HarCapture.Tests",
+                    Version = "1.0.0"
+                },
+                Entries = entries
+            }
+        };
+    }
+
+    private static Har CreateHarWithLargePayload(int entryCount, int bodySizePerEntry)
+    {
+        var startTime = DateTimeOffset.UtcNow;
+        var entries = new List<HarEntry>();
+
+        for (int i = 0; i < entryCount; i++)
+        {
+            var largeBody = new string('X', bodySizePerEntry);
+
+            entries.Add(new HarEntry
+            {
+                StartedDateTime = startTime.AddSeconds(i),
+                Time = 100,
+                Request = new HarRequest
+                {
+                    Method = "GET",
+                    Url = $"https://example.com/large-resource{i}",
+                    HttpVersion = "HTTP/1.1",
+                    Cookies = new List<HarCookie>(),
+                    Headers = new List<HarHeader>
+                    {
+                        new HarHeader { Name = "User-Agent", Value = "Test" }
+                    },
+                    QueryString = new List<HarQueryString>(),
+                    HeadersSize = -1,
+                    BodySize = 0
+                },
+                Response = new HarResponse
+                {
+                    Status = 200,
+                    StatusText = "OK",
+                    HttpVersion = "HTTP/1.1",
+                    Cookies = new List<HarCookie>(),
+                    Headers = new List<HarHeader>
+                    {
+                        new HarHeader { Name = "Content-Type", Value = "application/json" }
+                    },
+                    Content = new HarContent
+                    {
+                        Size = bodySizePerEntry,
+                        MimeType = "application/json",
+                        Text = largeBody
+                    },
+                    RedirectURL = "",
+                    HeadersSize = -1,
+                    BodySize = bodySizePerEntry
+                },
+                Cache = new HarCache(),
+                Timings = new HarTimings
+                {
+                    Send = 1,
+                    Wait = 50,
+                    Receive = 49
+                }
+            });
+        }
+
+        return new Har
+        {
+            Log = new HarLog
+            {
+                Version = "1.2",
+                Creator = new HarCreator
+                {
+                    Name = "Selenium.HarCapture.Tests",
+                    Version = "1.0.0"
+                },
+                Entries = entries
             }
         };
     }
