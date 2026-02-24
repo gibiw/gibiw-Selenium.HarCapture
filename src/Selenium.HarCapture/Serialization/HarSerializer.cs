@@ -73,6 +73,31 @@ public static class HarSerializer
 
         using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
         await JsonSerializer.SerializeAsync(stream, har, CreateOptions(writeIndented), cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Synchronously saves a Har object to a file.
+    /// </summary>
+    /// <param name="har">The HAR object to save.</param>
+    /// <param name="filePath">The path to the file where the HAR will be saved.</param>
+    /// <param name="writeIndented">If true, formats the JSON with indentation for readability. Default is true.</param>
+    /// <exception cref="ArgumentNullException">Thrown when har is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when filePath is null or empty.</exception>
+    public static void Save(Har har, string filePath, bool writeIndented = true)
+    {
+        if (har == null)
+        {
+            throw new ArgumentNullException(nameof(har));
+        }
+
+        if (string.IsNullOrEmpty(filePath))
+        {
+            throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+        }
+
+        var json = Serialize(har, writeIndented);
+        File.WriteAllText(filePath, json);
     }
 
     /// <summary>
@@ -100,6 +125,30 @@ public static class HarSerializer
         var result = await JsonSerializer.DeserializeAsync<Har>(stream, CreateOptions(false), cancellationToken).ConfigureAwait(false);
 
         return result ?? throw new JsonException("Deserialization resulted in a null Har object.");
+    }
+
+    /// <summary>
+    /// Synchronously loads a Har object from a file.
+    /// </summary>
+    /// <param name="filePath">The path to the HAR file to load.</param>
+    /// <returns>The loaded Har object.</returns>
+    /// <exception cref="ArgumentException">Thrown when filePath is null or empty.</exception>
+    /// <exception cref="FileNotFoundException">Thrown when the file does not exist.</exception>
+    /// <exception cref="JsonException">Thrown when the file cannot be deserialized or results in null.</exception>
+    public static Har Load(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
+        {
+            throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+        }
+
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException($"HAR file not found at path: {filePath}", filePath);
+        }
+
+        var json = File.ReadAllText(filePath);
+        return Deserialize(json);
     }
 
     /// <summary>
