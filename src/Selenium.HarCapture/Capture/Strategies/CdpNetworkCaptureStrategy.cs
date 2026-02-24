@@ -27,6 +27,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     private CaptureOptions _options = null!;
     private readonly RequestResponseCorrelator _correlator = new();
     private readonly ConcurrentDictionary<string, ResponseBodyInfo> _responseBodies = new();
+    private ConcurrentBag<Task> _pendingBodyTasks = new();
     private UrlPatternMatcher? _urlMatcher;
     private bool _disposed;
 
@@ -87,6 +88,19 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         if (_adapter != null)
         {
+            // Unsubscribe from events FIRST to prevent new entries during drain
+            _adapter.RequestWillBeSent -= OnRequestWillBeSent;
+            _adapter.ResponseReceived -= OnResponseReceived;
+            _adapter.LoadingFinished -= OnLoadingFinished;
+            _adapter.LoadingFailed -= OnLoadingFailed;
+
+            // Wait for all in-flight body retrievals to complete
+            var tasks = _pendingBodyTasks.ToArray();
+            if (tasks.Length > 0)
+            {
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+
             try
             {
                 await _adapter.DisableNetworkAsync().ConfigureAwait(false);
@@ -95,14 +109,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             {
                 // Session may already be closed, ignore
             }
-
-            // Unsubscribe from events
-            _adapter.RequestWillBeSent -= OnRequestWillBeSent;
-            _adapter.ResponseReceived -= OnResponseReceived;
-            _adapter.LoadingFinished -= OnLoadingFinished;
-            _adapter.LoadingFailed -= OnLoadingFailed;
         }
 
+        _pendingBodyTasks = new ConcurrentBag<Task>();
         _correlator.Clear();
         _responseBodies.Clear();
     }
@@ -185,8 +194,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
                 if (shouldGetBody)
                 {
-                    // Fire and forget: retrieve body asynchronously
-                    _ = RetrieveResponseBodyAsync(e.RequestId, entry);
+                    // Track async body retrieval task to ensure completion before StopAsync
+                    var task = RetrieveResponseBodyAsync(e.RequestId, entry);
+                    _pendingBodyTasks.Add(task);
                 }
                 else
                 {
@@ -595,6 +605,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         }
 
         _session?.Dispose();
+        _pendingBodyTasks = new ConcurrentBag<Task>();
         _correlator.Clear();
         _responseBodies.Clear();
     }

@@ -203,8 +203,12 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
 
     private static IDictionary<string, string>? CastHeaders(object? headers)
     {
-        if (headers is IDictionary<string, object> dict)
-            return dict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? string.Empty);
+        if (headers == null) return null;
+        if (headers is IDictionary<string, string> strDict)
+            return strDict;
+        if (headers is IDictionary<string, object> objDict)
+            return objDict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? string.Empty);
+        // Last resort: try reflection for any dictionary-like object
         return null;
     }
 
