@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using OpenQA.Selenium;
 using OpenQA.Selenium.DevTools;
+using Selenium.HarCapture.Capture.Internal.Cdp;
 
 namespace Selenium.HarCapture.Capture.Strategies;
 
@@ -50,9 +51,17 @@ internal static class StrategyFactory
             try
             {
                 Debug.WriteLine("[HarCapture] IDevTools detected, attempting CDP strategy");
-                // Validate CDP session can be created (test then discard)
+                // Validate CDP session and version-specific domains (test then discard)
                 var session = devToolsDriver.GetDevToolsSession();
-                session.Dispose();
+                try
+                {
+                    var adapter = CdpAdapterFactory.Create(session);
+                    adapter.Dispose();
+                }
+                finally
+                {
+                    session.Dispose();
+                }
                 return new CdpNetworkCaptureStrategy(driver);
             }
             catch (Exception ex)

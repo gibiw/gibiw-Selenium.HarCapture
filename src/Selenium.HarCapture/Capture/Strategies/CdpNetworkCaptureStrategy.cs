@@ -7,9 +7,8 @@ using System.Threading.Tasks;
 using System.Web;
 using OpenQA.Selenium;
 using OpenQA.Selenium.DevTools;
-using DevToolsSessionDomains = OpenQA.Selenium.DevTools.V144.DevToolsSessionDomains;
-using Network = OpenQA.Selenium.DevTools.V144.Network;
 using Selenium.HarCapture.Capture.Internal;
+using Selenium.HarCapture.Capture.Internal.Cdp;
 using Selenium.HarCapture.Models;
 
 namespace Selenium.HarCapture.Capture.Strategies;
@@ -18,12 +17,13 @@ namespace Selenium.HarCapture.Capture.Strategies;
 /// Captures network traffic using Chrome DevTools Protocol (CDP) Network domain.
 /// Primary strategy for Chromium-based browsers (Chrome, Edge).
 /// Provides detailed timings and response body capture.
+/// Supports CDP versions V142-V144 via auto-detection.
 /// </summary>
 internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 {
     private readonly IWebDriver _driver;
     private DevToolsSession? _session;
-    private DevToolsSessionDomains? _domains;
+    private ICdpNetworkAdapter? _adapter;
     private CaptureOptions _options = null!;
     private readonly RequestResponseCorrelator _correlator = new();
     private readonly ConcurrentDictionary<string, ResponseBodyInfo> _responseBodies = new();
@@ -65,31 +65,31 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 "Driver does not support Chrome DevTools Protocol. Use a Chromium-based browser (Chrome, Edge).");
         }
 
-        // Create CDP session and get Network domain
+        // Create CDP session and auto-detect version
         _session = devTools.GetDevToolsSession();
-        _domains = _session.GetVersionSpecificDomains<DevToolsSessionDomains>();
+        _adapter = CdpAdapterFactory.Create(_session);
 
         // Initialize URL matcher for filtering
         _urlMatcher = new UrlPatternMatcher(options.UrlIncludePatterns, options.UrlExcludePatterns);
 
-        // Subscribe to Network events BEFORE enabling (critical order)
-        _domains.Network.RequestWillBeSent += OnRequestWillBeSent;
-        _domains.Network.ResponseReceived += OnResponseReceived;
-        _domains.Network.LoadingFinished += OnLoadingFinished;
-        _domains.Network.LoadingFailed += OnLoadingFailed;
+        // Subscribe to adapter events BEFORE enabling (critical order)
+        _adapter.RequestWillBeSent += OnRequestWillBeSent;
+        _adapter.ResponseReceived += OnResponseReceived;
+        _adapter.LoadingFinished += OnLoadingFinished;
+        _adapter.LoadingFailed += OnLoadingFailed;
 
         // Enable Network domain
-        await _domains.Network.Enable(new Network.EnableCommandSettings()).ConfigureAwait(false);
+        await _adapter.EnableNetworkAsync().ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task StopAsync()
     {
-        if (_domains != null)
+        if (_adapter != null)
         {
             try
             {
-                await _domains.Network.Disable(new Network.DisableCommandSettings()).ConfigureAwait(false);
+                await _adapter.DisableNetworkAsync().ConfigureAwait(false);
             }
             catch
             {
@@ -97,10 +97,10 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             }
 
             // Unsubscribe from events
-            _domains.Network.RequestWillBeSent -= OnRequestWillBeSent;
-            _domains.Network.ResponseReceived -= OnResponseReceived;
-            _domains.Network.LoadingFinished -= OnLoadingFinished;
-            _domains.Network.LoadingFailed -= OnLoadingFailed;
+            _adapter.RequestWillBeSent -= OnRequestWillBeSent;
+            _adapter.ResponseReceived -= OnResponseReceived;
+            _adapter.LoadingFinished -= OnLoadingFinished;
+            _adapter.LoadingFailed -= OnLoadingFailed;
         }
 
         _correlator.Clear();
@@ -111,7 +111,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// Handles CDP requestWillBeSent event.
     /// Fires when a request is about to be sent on the network.
     /// </summary>
-    private void OnRequestWillBeSent(object? sender, Network.RequestWillBeSentEventArgs e)
+    private void OnRequestWillBeSent(CdpRequestWillBeSentData e)
     {
         try
         {
@@ -147,7 +147,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// Handles CDP responseReceived event.
     /// Fires when HTTP response headers are received.
     /// </summary>
-    private void OnResponseReceived(object? sender, Network.ResponseReceivedEventArgs e)
+    private void OnResponseReceived(CdpResponseReceivedData e)
     {
         try
         {
@@ -160,17 +160,14 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
             if (e.Response.Timing != null)
             {
+                var t = e.Response.Timing;
                 harTimings = CdpTimingMapper.MapToHarTimings(
-                    e.Response.Timing.DnsStart,
-                    e.Response.Timing.DnsEnd,
-                    e.Response.Timing.ConnectStart,
-                    e.Response.Timing.ConnectEnd,
-                    e.Response.Timing.SslStart,
-                    e.Response.Timing.SslEnd,
-                    e.Response.Timing.SendStart,
-                    e.Response.Timing.SendEnd,
-                    e.Response.Timing.ReceiveHeadersEnd,
-                    e.Response.Timing.RequestTime,
+                    t.DnsStart, t.DnsEnd,
+                    t.ConnectStart, t.ConnectEnd,
+                    t.SslStart, t.SslEnd,
+                    t.SendStart, t.SendEnd,
+                    t.ReceiveHeadersEnd,
+                    t.RequestTime,
                     e.Timestamp);
 
                 // Calculate total time from timing components
@@ -208,7 +205,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// Handles CDP loadingFinished event.
     /// Fires when network loading completes successfully.
     /// </summary>
-    private void OnLoadingFinished(object? sender, Network.LoadingFinishedEventArgs e)
+    private void OnLoadingFinished(string requestId)
     {
         // Response body retrieval happens in OnResponseReceived (immediately after headers received).
         // LoadingFinished is too late - the resource may have been dumped by the browser.
@@ -220,7 +217,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// Handles CDP loadingFailed event.
     /// Fires when network loading fails (timeout, connection refused, etc.).
     /// </summary>
-    private void OnLoadingFailed(object? sender, Network.LoadingFailedEventArgs e)
+    private void OnLoadingFailed(string requestId)
     {
         // Failed requests do not produce complete HAR entries.
         // Remove pending entry from correlator to free memory.
@@ -231,7 +228,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// <summary>
     /// Completes a redirect entry using the redirect response data.
     /// </summary>
-    private void CompleteRedirectEntry(string requestId, Network.Response redirectResponse, double timestamp)
+    private void CompleteRedirectEntry(string requestId, CdpResponseInfo redirectResponse, double timestamp)
     {
         var harResponse = BuildHarResponse(redirectResponse);
 
@@ -258,24 +255,23 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
-            if (_domains == null)
+            if (_adapter == null)
             {
                 EntryCompleted?.Invoke(entry, requestId);
                 return;
             }
 
-            var cmd = new Network.GetResponseBodyCommandSettings { RequestId = requestId };
-            var response = await _domains.Network.GetResponseBody(cmd).ConfigureAwait(false);
+            var (body, base64Encoded) = await _adapter.GetResponseBodyAsync(requestId).ConfigureAwait(false);
 
             // Check MaxResponseBodySize limit
-            string? bodyText = response.Body;
-            string? encoding = response.Base64Encoded ? "base64" : null;
-            long bodySize = response.Body?.Length ?? 0;
+            string? bodyText = body;
+            string? encoding = base64Encoded ? "base64" : null;
+            long bodySize = body?.Length ?? 0;
 
             if (_options.MaxResponseBodySize > 0 && bodySize > _options.MaxResponseBodySize)
             {
                 // Truncate body
-                bodyText = response.Body?.Substring(0, (int)_options.MaxResponseBodySize);
+                bodyText = body?.Substring(0, (int)_options.MaxResponseBodySize);
                 bodySize = _options.MaxResponseBodySize;
             }
 
@@ -346,7 +342,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// <summary>
     /// Builds a HAR request from CDP request data.
     /// </summary>
-    private HarRequest BuildHarRequest(Network.Request cdpRequest)
+    private HarRequest BuildHarRequest(CdpRequestInfo cdpRequest)
     {
         var captureTypes = _options.CaptureTypes;
 
@@ -355,7 +351,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         if ((captureTypes & CaptureType.RequestHeaders) != 0 && cdpRequest.Headers != null)
         {
             headers = cdpRequest.Headers
-                .Select(kvp => new HarHeader { Name = kvp.Key, Value = kvp.Value?.ToString() ?? "" })
+                .Select(kvp => new HarHeader { Name = kvp.Key, Value = kvp.Value ?? "" })
                 .ToList();
         }
 
@@ -404,7 +400,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// <summary>
     /// Builds a HAR response from CDP response data.
     /// </summary>
-    private HarResponse BuildHarResponse(Network.Response cdpResponse)
+    private HarResponse BuildHarResponse(CdpResponseInfo cdpResponse)
     {
         var captureTypes = _options.CaptureTypes;
 
@@ -413,7 +409,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         if ((captureTypes & CaptureType.ResponseHeaders) != 0 && cdpResponse.Headers != null)
         {
             headers = cdpResponse.Headers
-                .Select(kvp => new HarHeader { Name = kvp.Key, Value = kvp.Value?.ToString() ?? "" })
+                .Select(kvp => new HarHeader { Name = kvp.Key, Value = kvp.Value ?? "" })
                 .ToList();
         }
 
@@ -526,7 +522,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// <summary>
     /// Parses Set-Cookie headers from response headers dictionary.
     /// </summary>
-    private List<HarCookie> ParseSetCookieHeaders(Network.Headers? headers)
+    private List<HarCookie> ParseSetCookieHeaders(IDictionary<string, string>? headers)
     {
         var result = new List<HarCookie>();
 
@@ -542,7 +538,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             {
                 if (kvp.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var value = kvp.Value?.ToString();
+                    var value = kvp.Value;
                     if (!string.IsNullOrEmpty(value))
                     {
                         // Simplified parsing: just extract name=value
@@ -577,23 +573,25 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
         _disposed = true;
 
-        if (_domains != null)
+        if (_adapter != null)
         {
             // Unsubscribe from events
-            _domains.Network.RequestWillBeSent -= OnRequestWillBeSent;
-            _domains.Network.ResponseReceived -= OnResponseReceived;
-            _domains.Network.LoadingFinished -= OnLoadingFinished;
-            _domains.Network.LoadingFailed -= OnLoadingFailed;
+            _adapter.RequestWillBeSent -= OnRequestWillBeSent;
+            _adapter.ResponseReceived -= OnResponseReceived;
+            _adapter.LoadingFinished -= OnLoadingFinished;
+            _adapter.LoadingFailed -= OnLoadingFailed;
 
             // Try to disable Network domain
             try
             {
-                _domains.Network.Disable(new Network.DisableCommandSettings()).GetAwaiter().GetResult();
+                _adapter.DisableNetworkAsync().GetAwaiter().GetResult();
             }
             catch
             {
                 // Session may already be closed, ignore
             }
+
+            _adapter.Dispose();
         }
 
         _session?.Dispose();
