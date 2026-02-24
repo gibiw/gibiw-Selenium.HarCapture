@@ -12,7 +12,7 @@ namespace Selenium.HarCapture.Capture.Strategies;
 /// <summary>
 /// Captures network traffic using Selenium's INetwork API (event-based).
 /// Fallback strategy for non-Chromium browsers or when CDP is unavailable.
-/// Does not provide detailed timings or response body capture.
+/// Does not provide detailed timings but supports request and response body capture.
 /// </summary>
 internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
 {
@@ -40,7 +40,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
     public bool SupportsDetailedTimings => false;
 
     /// <inheritdoc />
-    public bool SupportsResponseBody => false;
+    public bool SupportsResponseBody => true;
 
     /// <inheritdoc />
     public event Action<HarEntry, string>? EntryCompleted;
@@ -176,8 +176,19 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         // Query string
         var queryString = ParseQueryString(e.RequestUrl ?? "");
 
-        // Post data - INetwork doesn't expose request body
+        // Post data
         HarPostData? postData = null;
+        if ((captureTypes & CaptureType.RequestContent) != 0 && !string.IsNullOrEmpty(e.RequestPostData))
+        {
+            postData = new HarPostData
+            {
+                MimeType = "application/octet-stream",
+                Params = new List<HarParam>(),
+                Text = e.RequestPostData
+            };
+        }
+
+        long bodySize = postData?.Text?.Length ?? -1;
 
         return new HarRequest
         {
@@ -189,7 +200,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             QueryString = queryString,
             PostData = postData,
             HeadersSize = -1,
-            BodySize = -1
+            BodySize = bodySize
         };
     }
 
@@ -226,11 +237,30 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             mimeType = parts[0].Trim();
         }
 
-        // Content (initially without body text - INetwork doesn't expose response body)
+        // Response body
+        string? bodyText = null;
+        long bodySize = -1;
+        bool wantsContent = (captureTypes & CaptureType.ResponseContent) != 0 ||
+                            (captureTypes & CaptureType.ResponseBinaryContent) != 0;
+
+        if (wantsContent && e.ResponseBody != null)
+        {
+            bodyText = e.ResponseBody;
+            bodySize = bodyText.Length;
+
+            // Check MaxResponseBodySize limit
+            if (_options.MaxResponseBodySize > 0 && bodySize > _options.MaxResponseBodySize)
+            {
+                bodyText = bodyText.Substring(0, (int)_options.MaxResponseBodySize);
+                bodySize = _options.MaxResponseBodySize;
+            }
+        }
+
         var content = new HarContent
         {
-            Size = -1,
-            MimeType = mimeType
+            Size = bodySize,
+            MimeType = mimeType,
+            Text = bodyText
         };
 
         return new HarResponse
@@ -243,7 +273,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             Content = content,
             RedirectURL = "",
             HeadersSize = -1,
-            BodySize = -1
+            BodySize = bodySize
         };
     }
 

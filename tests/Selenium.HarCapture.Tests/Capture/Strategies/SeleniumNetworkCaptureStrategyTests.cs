@@ -55,7 +55,7 @@ public class SeleniumNetworkCaptureStrategyTests
     }
 
     [Fact]
-    public void SupportsResponseBody_ReturnsFalse()
+    public void SupportsResponseBody_ReturnsTrue()
     {
         // Arrange
         var driver = new NonDevToolsDriver();
@@ -65,7 +65,7 @@ public class SeleniumNetworkCaptureStrategyTests
         var supports = strategy.SupportsResponseBody;
 
         // Assert
-        supports.Should().BeFalse();
+        supports.Should().BeTrue();
     }
 
     [Fact]
