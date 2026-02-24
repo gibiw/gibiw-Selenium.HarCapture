@@ -5,6 +5,7 @@ using FluentAssertions;
 using OpenQA.Selenium;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
+using Selenium.HarCapture.Models;
 using Xunit;
 
 namespace Selenium.HarCapture.Tests.Capture.Strategies;
@@ -122,6 +123,59 @@ public class CdpNetworkCaptureStrategyTests
         Action act = () => strategy.Dispose();
 
         act.Should().NotThrow("Dispose should be idempotent");
+    }
+
+    [Fact]
+    public async Task StopAsync_WhenNotStarted_DoesNotThrow()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+        var strategy = new CdpNetworkCaptureStrategy(driver);
+
+        // Act & Assert
+        Func<Task> act = async () => await strategy.StopAsync();
+
+        await act.Should().NotThrowAsync("StopAsync should handle empty pending tasks collection");
+    }
+
+    [Fact]
+    public async Task Dispose_AfterPartialStart_DoesNotThrow()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+        var strategy = new CdpNetworkCaptureStrategy(driver);
+
+        // Simulate partial initialization by attempting start (which will fail)
+        try
+        {
+            await strategy.StartAsync(new CaptureOptions());
+        }
+        catch
+        {
+            // Expected to fail - driver doesn't support DevTools
+        }
+
+        // Act & Assert
+        Action act = () => strategy.Dispose();
+
+        act.Should().NotThrow("Dispose should handle null _pendingBodyTasks gracefully");
+    }
+
+    [Fact]
+    public void EntryCompleted_CanBeSubscribed()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+        var strategy = new CdpNetworkCaptureStrategy(driver);
+        var eventFired = false;
+
+        // Act - subscribe to event
+        Action<HarEntry, string> handler = (entry, id) => eventFired = true;
+        strategy.EntryCompleted += handler;
+        strategy.EntryCompleted -= handler;
+
+        // Assert
+        eventFired.Should().BeFalse("Event handler was subscribed and unsubscribed without firing");
     }
 
     /// <summary>
