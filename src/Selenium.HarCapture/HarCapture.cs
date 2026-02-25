@@ -302,16 +302,13 @@ public sealed class HarCapture : IDisposable, IAsyncDisposable
     /// Performs async cleanup of resources.
     /// </summary>
     /// <returns>A task that represents the async cleanup operation.</returns>
-    private ValueTask DisposeAsyncCore()
+    private async ValueTask DisposeAsyncCore()
     {
         if (_session is not null)
         {
-            // HarCaptureSession only has synchronous disposal
-            _session.Dispose();
+            await _session.DisposeAsync().ConfigureAwait(false);
             _session = null;
         }
-
-        return default;
     }
 
     /// <summary>
