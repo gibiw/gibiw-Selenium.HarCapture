@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using FluentAssertions;
 using OpenQA.Selenium;
@@ -249,6 +250,140 @@ public sealed class HarCaptureTests
         Action newPageAction = () => capture.NewPage("page", "Page");
         newPageAction.Should().Throw<ObjectDisposedException>()
             .WithMessage("*HarCapture*");
+    }
+
+    [Fact]
+    public async Task StopAndSaveAsync_WithOutputFileConfigured_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var options = new CaptureOptions().WithOutputFile(tempFile);
+            var mockStrategy = new MockCaptureStrategy();
+            var session = new HarCaptureSession(mockStrategy, options);
+            var capture = new HarCapture(session);
+            await capture.StartAsync();
+
+            var anotherTempFile = Path.GetTempFileName();
+            try
+            {
+                // Act & Assert
+                Func<Task> act = async () => await capture.StopAndSaveAsync(anotherTempFile);
+
+                await act.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("*WithOutputFile*StopAndSaveAsync*");
+            }
+            finally
+            {
+                if (File.Exists(anotherTempFile))
+                    File.Delete(anotherTempFile);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void StopAndSave_WithOutputFileConfigured_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var options = new CaptureOptions().WithOutputFile(tempFile);
+            var mockStrategy = new MockCaptureStrategy();
+            var session = new HarCaptureSession(mockStrategy, options);
+            var capture = new HarCapture(session);
+            capture.Start();
+
+            var anotherTempFile = Path.GetTempFileName();
+            try
+            {
+                // Act & Assert
+                Action act = () => capture.StopAndSave(anotherTempFile);
+
+                act.Should().Throw<InvalidOperationException>()
+                    .WithMessage("*WithOutputFile*StopAndSaveAsync*");
+            }
+            finally
+            {
+                if (File.Exists(anotherTempFile))
+                    File.Delete(anotherTempFile);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task StopAndSaveAsync_WithoutOutputFile_WorksNormally()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        await capture.StartAsync();
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            // Act
+            var har = await capture.StopAndSaveAsync(tempFile);
+
+            // Assert
+            har.Should().NotBeNull();
+            har.Log.Should().NotBeNull();
+            File.Exists(tempFile).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task StopAndSaveAsync_WithOutputFileConfigured_ExceptionMessageExplainsConflict()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            var options = new CaptureOptions().WithOutputFile(tempFile);
+            var mockStrategy = new MockCaptureStrategy();
+            var session = new HarCaptureSession(mockStrategy, options);
+            var capture = new HarCapture(session);
+            await capture.StartAsync();
+
+            var anotherTempFile = Path.GetTempFileName();
+            try
+            {
+                // Act & Assert
+                Func<Task> act = async () => await capture.StopAndSaveAsync(anotherTempFile);
+
+                var exception = await act.Should().ThrowAsync<InvalidOperationException>();
+                exception.Which.Message.Should().Contain("WithOutputFile");
+                exception.Which.Message.Should().Contain("StopAndSaveAsync");
+                exception.Which.Message.Should().Contain(tempFile);
+            }
+            finally
+            {
+                if (File.Exists(anotherTempFile))
+                    File.Delete(anotherTempFile);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
     }
 
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
