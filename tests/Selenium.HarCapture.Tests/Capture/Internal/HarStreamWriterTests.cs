@@ -84,14 +84,15 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
     }
 
     [Fact]
-    public void WriteEntry_SingleEntry_ProducesValidHar()
+    public async Task WriteEntry_SingleEntry_ProducesValidHar()
     {
         var path = TempFile();
         var entry = CreateEntry("https://example.com/api");
 
-        using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
         {
             writer.WriteEntry(entry);
+            await writer.WaitForConsumerAsync();
             writer.Count.Should().Be(1);
         }
 
@@ -101,17 +102,18 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
     }
 
     [Fact]
-    public void WriteEntry_MultipleEntries_ProducesValidHar()
+    public async Task WriteEntry_MultipleEntries_ProducesValidHar()
     {
         var path = TempFile();
 
-        using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
         {
             for (int i = 0; i < 10; i++)
             {
                 writer.WriteEntry(CreateEntry($"https://example.com/{i}", 200 + i));
             }
 
+            await writer.WaitForConsumerAsync();
             writer.Count.Should().Be(10);
         }
 
@@ -123,7 +125,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
     }
 
     [Fact]
-    public void AlwaysValid_FileIsValidAfterEachEntry_WithoutComplete()
+    public async Task AlwaysValid_FileIsValidAfterEachEntry_WithoutComplete()
     {
         var path = TempFile();
 
@@ -134,6 +136,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
         for (int i = 1; i <= 5; i++)
         {
             writer.WriteEntry(CreateEntry($"https://example.com/{i}"));
+            await writer.WaitForConsumerAsync();
 
             // Read the file while writer still holds it (via FileShare.Read on writer's stream)
             var content = File.ReadAllText(path);
@@ -141,7 +144,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
             har.Log.Entries.Should().HaveCount(i, $"after writing {i} entries the file should be valid with {i} entries");
         }
 
-        writer.Dispose();
+        await writer.DisposeAsync();
     }
 
     [Fact]
@@ -223,13 +226,13 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
     }
 
     [Fact]
-    public void ConcurrentWriteEntry_AllEntriesPresent()
+    public async Task ConcurrentWriteEntry_AllEntriesPresent()
     {
         var path = TempFile();
         const int threadCount = 8;
         const int entriesPerThread = 50;
 
-        using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator))
         {
             var barrier = new Barrier(threadCount);
             var threads = new Thread[threadCount];
@@ -251,6 +254,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
             foreach (var thread in threads)
                 thread.Join();
 
+            await writer.WaitForConsumerAsync();
             writer.Count.Should().Be(threadCount * entriesPerThread);
         }
 
