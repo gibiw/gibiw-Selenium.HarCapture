@@ -20,7 +20,7 @@ namespace Selenium.HarCapture.Capture;
 /// It coordinates between a capture strategy (CDP or INetwork) and the HAR data model.
 /// Thread-safe for concurrent operations using internal locking.
 /// </remarks>
-public sealed class HarCaptureSession : IDisposable
+public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
 {
     private readonly CaptureOptions _options;
     private readonly UrlPatternMatcher _urlMatcher;
@@ -226,8 +226,11 @@ public sealed class HarCaptureSession : IDisposable
 
         if (_streamWriter != null)
         {
+            // Complete signals no more writes, DisposeAsync drains remaining entries
             _streamWriter.Complete();
+            await _streamWriter.DisposeAsync().ConfigureAwait(false);
             _logger?.Log("HarCapture", $"Streaming completed: {_streamWriter.Count} entries, {_har.Log.Pages?.Count ?? 0} pages");
+            _streamWriter = null;
         }
         else
         {
@@ -511,6 +514,36 @@ public sealed class HarCaptureSession : IDisposable
                 _logger?.Log("HarCapture", $"Entry added: pageRef={_currentPageRef ?? "(none)"}, totalEntries={entries.Count}");
             }
         }
+    }
+
+    /// <summary>
+    /// Asynchronously releases all resources used by the <see cref="HarCaptureSession"/>.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous dispose operation.</returns>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _logger?.Log("HarCapture", "Session async disposal started");
+
+        if (_streamWriter != null)
+        {
+            await _streamWriter.DisposeAsync().ConfigureAwait(false);
+            _streamWriter = null;
+        }
+
+        if (_strategy != null)
+        {
+            _strategy.EntryCompleted -= OnEntryCompleted;
+            _strategy.Dispose();
+            _strategy = null;
+        }
+
+        _logger?.Dispose();
+        _disposed = true;
+
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
