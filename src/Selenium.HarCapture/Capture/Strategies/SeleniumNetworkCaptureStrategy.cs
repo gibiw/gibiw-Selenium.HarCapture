@@ -66,7 +66,11 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
 
         // Start monitoring
         await _network.StartMonitoring().ConfigureAwait(false);
+        _logger?.Log("INetwork", "StartAsync: network monitoring started");
     }
+
+    private const int StopTimeoutMs = 10_000;
+    private const int DisposeTimeoutMs = 5_000;
 
     /// <inheritdoc />
     public async Task StopAsync()
@@ -75,11 +79,21 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         {
             try
             {
-                await _network.StopMonitoring().ConfigureAwait(false);
+                var stopTask = _network.StopMonitoring();
+                var completed = await Task.WhenAny(stopTask, Task.Delay(StopTimeoutMs)).ConfigureAwait(false);
+                if (completed == stopTask)
+                {
+                    await stopTask.ConfigureAwait(false);
+                    _logger?.Log("INetwork", "StopAsync: monitoring stopped");
+                }
+                else
+                {
+                    _logger?.Log("INetwork", $"StopAsync: StopMonitoring timed out after {StopTimeoutMs / 1000}s, forcing stop");
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Session may already be closed, ignore
+                _logger?.Log("INetwork", $"StopAsync: StopMonitoring failed: {ex.Message}");
             }
 
             // Unsubscribe from events
@@ -99,9 +113,13 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            var requestId = e.RequestId ?? "";
+            _logger?.Log("INetwork", $"RequestSent: id={requestId}, {e.RequestMethod} {e.RequestUrl}");
+
             // URL filtering
             if (_urlMatcher != null && !_urlMatcher.ShouldCapture(e.RequestUrl ?? ""))
             {
+                _logger?.Log("INetwork", $"Request filtered out by URL pattern: {e.RequestUrl}");
                 return;
             }
 
@@ -110,11 +128,11 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
 
             // Record timestamp for basic timing calculation
             var now = DateTimeOffset.UtcNow;
-            var requestId = e.RequestId ?? "";
             _requestTimestamps[requestId] = now;
 
             // Record request in correlator
             _correlator.OnRequestSent(requestId, harRequest, now);
+            _logger?.Log("INetwork", $"Request recorded: id={requestId}, pending={_correlator.PendingCount}");
         }
         catch (Exception ex)
         {
@@ -131,16 +149,21 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            var requestId = e.RequestId ?? "";
+            _logger?.Log("INetwork", $"ResponseReceived: id={requestId}, status={e.ResponseStatusCode}");
+
             // Build HAR response
             var harResponse = BuildHarResponse(e);
 
             // Calculate basic timing from request/response timestamps
-            var requestId = e.RequestId ?? "";
             double totalTime = 0;
-            if (_requestTimestamps.TryRemove(requestId, out var requestTime))
+            bool timestampFound = _requestTimestamps.TryRemove(requestId, out var requestTime);
+            if (timestampFound)
             {
                 totalTime = (DateTimeOffset.UtcNow - requestTime).TotalMilliseconds;
             }
+
+            _logger?.Log("INetwork", $"Timing: totalTime={totalTime:F1}ms (timestamp {(timestampFound ? "found" : "not found")})");
 
             var harTimings = new HarTimings
             {
@@ -152,8 +175,16 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             // Correlate response with request
             var entry = _correlator.OnResponseReceived(requestId, harResponse, harTimings, totalTime);
 
-            if (entry != null)
+            if (entry == null)
             {
+                _logger?.Log("INetwork", $"Correlation failed: no matching request for id={requestId}");
+            }
+            else
+            {
+                var bodySize = harResponse.Content?.Size ?? -1;
+                var truncated = _options.MaxResponseBodySize > 0 && (e.ResponseBody?.Length ?? 0) > _options.MaxResponseBodySize;
+                _logger?.Log("INetwork", $"Body: size={bodySize}, truncated={( truncated ? "yes" : "no")}");
+                _logger?.Log("INetwork", $"EntryCompleted fired: id={requestId}");
                 EntryCompleted?.Invoke(entry, e.RequestId);
             }
         }
@@ -432,10 +463,13 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             _network.NetworkRequestSent -= OnNetworkRequestSent;
             _network.NetworkResponseReceived -= OnNetworkResponseReceived;
 
-            // Try to stop monitoring
+            // Try to stop monitoring with timeout to prevent hanging
             try
             {
-                _network.StopMonitoring().GetAwaiter().GetResult();
+                if (!_network.StopMonitoring().Wait(DisposeTimeoutMs))
+                {
+                    _logger?.Log("INetwork", $"Dispose: StopMonitoring timed out after {DisposeTimeoutMs / 1000}s");
+                }
             }
             catch
             {

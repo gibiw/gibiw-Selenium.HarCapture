@@ -60,6 +60,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
 
+        _logger?.Log("CDP", "StartAsync: creating session and adapter");
+
         // Verify driver supports CDP
         var devTools = _driver as IDevTools;
         if (devTools == null)
@@ -70,7 +72,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
         // Create CDP session and auto-detect version
         _session = devTools.GetDevToolsSession();
-        _adapter = CdpAdapterFactory.Create(_session);
+        _adapter = CdpAdapterFactory.Create(_session, _logger);
 
         // Initialize URL matcher for filtering
         _urlMatcher = new UrlPatternMatcher(options.UrlIncludePatterns, options.UrlExcludePatterns);
@@ -83,7 +85,11 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
         // Enable Network domain
         await _adapter.EnableNetworkAsync().ConfigureAwait(false);
+        _logger?.Log("CDP", "Network domain enabled, capture ready");
     }
+
+    private const int StopTimeoutMs = 10_000;
+    private const int DisposeTimeoutMs = 5_000;
 
     /// <inheritdoc />
     public async Task StopAsync()
@@ -96,20 +102,41 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             _adapter.LoadingFinished -= OnLoadingFinished;
             _adapter.LoadingFailed -= OnLoadingFailed;
 
-            // Wait for all in-flight body retrievals to complete
+            // Wait for all in-flight body retrievals to complete (with timeout)
             var tasks = _pendingBodyTasks.ToArray();
             if (tasks.Length > 0)
             {
-                await Task.WhenAll(tasks).ConfigureAwait(false);
+                _logger?.Log("CDP", $"StopAsync: waiting for {tasks.Length} pending body tasks");
+                var allTasks = Task.WhenAll(tasks);
+                var completed = await Task.WhenAny(allTasks, Task.Delay(StopTimeoutMs)).ConfigureAwait(false);
+                if (completed == allTasks)
+                {
+                    await allTasks.ConfigureAwait(false);
+                    _logger?.Log("CDP", "StopAsync: all body tasks completed");
+                }
+                else
+                {
+                    _logger?.Log("CDP", $"StopAsync: body tasks timed out after {StopTimeoutMs / 1000}s, proceeding without remaining bodies");
+                }
             }
 
             try
             {
-                await _adapter.DisableNetworkAsync().ConfigureAwait(false);
+                var disableTask = _adapter.DisableNetworkAsync();
+                var completed2 = await Task.WhenAny(disableTask, Task.Delay(DisposeTimeoutMs)).ConfigureAwait(false);
+                if (completed2 == disableTask)
+                {
+                    await disableTask.ConfigureAwait(false);
+                    _logger?.Log("CDP", "StopAsync: network domain disabled");
+                }
+                else
+                {
+                    _logger?.Log("CDP", $"StopAsync: DisableNetwork timed out after {DisposeTimeoutMs / 1000}s");
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Session may already be closed, ignore
+                _logger?.Log("CDP", $"StopAsync: DisableNetwork failed: {ex.Message}");
             }
         }
 
@@ -126,15 +153,19 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            _logger?.Log("CDP", $"RequestWillBeSent: id={e.RequestId}, {e.Request.Method} {e.Request.Url}");
+
             // URL filtering
             if (_urlMatcher != null && !_urlMatcher.ShouldCapture(e.Request.Url))
             {
+                _logger?.Log("CDP", $"Request filtered out by URL pattern: {e.Request.Url}");
                 return;
             }
 
             // Handle redirects: complete previous entry with redirect response
             if (e.RedirectResponse != null)
             {
+                _logger?.Log("CDP", $"Redirect detected: id={e.RequestId}, completing redirect entry");
                 CompleteRedirectEntry(e.RequestId, e.RedirectResponse, e.Timestamp);
             }
 
@@ -146,6 +177,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
             // Record request in correlator
             _correlator.OnRequestSent(e.RequestId, harRequest, startedDateTime);
+            _logger?.Log("CDP", $"Request recorded: id={e.RequestId}, pending={_correlator.PendingCount}");
         }
         catch (Exception ex)
         {
@@ -162,6 +194,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            _logger?.Log("CDP", $"ResponseReceived: id={e.RequestId}, status={e.Response.Status}, mime={e.Response.MimeType}");
+
             // Build HAR response
             var harResponse = BuildHarResponse(e.Response);
 
@@ -184,26 +218,43 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 // Calculate total time from timing components
                 totalTime = (harTimings.Blocked ?? 0) + (harTimings.Dns ?? 0) + (harTimings.Connect ?? 0) +
                             harTimings.Send + harTimings.Wait + harTimings.Receive;
+
+                _logger?.Log("CDP", $"Timings: dns={harTimings.Dns ?? 0:F1}, connect={harTimings.Connect ?? 0:F1}, send={harTimings.Send:F1}, wait={harTimings.Wait:F1}, receive={harTimings.Receive:F1}, total={totalTime:F1}ms");
             }
 
             // Correlate response with request
             var entry = _correlator.OnResponseReceived(e.RequestId, harResponse, harTimings, totalTime);
 
-            if (entry != null)
+            if (entry == null)
+            {
+                _logger?.Log("CDP", $"Correlation failed: no matching request for id={e.RequestId}");
+            }
+            else
             {
                 // Determine if we should retrieve response body
                 bool shouldGetBody = ShouldRetrieveResponseBody(e.Response.Status);
 
-                if (shouldGetBody)
+                if (!shouldGetBody)
                 {
-                    // Track async body retrieval task to ensure completion before StopAsync
-                    var task = RetrieveResponseBodyAsync(e.RequestId, entry);
-                    _pendingBodyTasks.Add(task);
+                    if (e.Response.Status == 304 || e.Response.Status == 204)
+                    {
+                        _logger?.Log("CDP", $"Body retrieval: skip (status={e.Response.Status})");
+                    }
+                    else
+                    {
+                        _logger?.Log("CDP", "Body retrieval: skip (content capture disabled)");
+                    }
+
+                    // No body needed, fire EntryCompleted immediately
+                    _logger?.Log("CDP", $"EntryCompleted fired (no body): id={e.RequestId}");
+                    EntryCompleted?.Invoke(entry, e.RequestId);
                 }
                 else
                 {
-                    // No body needed, fire EntryCompleted immediately
-                    EntryCompleted?.Invoke(entry, e.RequestId);
+                    _logger?.Log("CDP", $"Body retrieval: starting async for id={e.RequestId}");
+                    // Track async body retrieval task to ensure completion before StopAsync
+                    var task = RetrieveResponseBodyAsync(e.RequestId, entry);
+                    _pendingBodyTasks.Add(task);
                 }
             }
         }
@@ -231,6 +282,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// </summary>
     private void OnLoadingFailed(string requestId)
     {
+        _logger?.Log("CDP", $"LoadingFailed: id={requestId} (request dropped)");
         // Failed requests do not produce complete HAR entries.
         // Remove pending entry from correlator to free memory.
         // In the future, we could optionally create error entries.
@@ -280,8 +332,11 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             string? encoding = base64Encoded ? "base64" : null;
             long bodySize = body?.Length ?? 0;
 
+            _logger?.Log("CDP", $"Body retrieved: id={requestId}, size={bodySize}, base64={base64Encoded}");
+
             if (_options.MaxResponseBodySize > 0 && bodySize > _options.MaxResponseBodySize)
             {
+                _logger?.Log("CDP", $"Body truncated: id={requestId}, original={bodySize}, limit={_options.MaxResponseBodySize}");
                 // Truncate body
                 bodyText = body?.Substring(0, (int)_options.MaxResponseBodySize);
                 bodySize = _options.MaxResponseBodySize;
@@ -325,7 +380,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         catch (Exception ex)
         {
             // "No resource with given identifier found" is expected when resource was already dumped
-            _logger?.Log("CDP", $"Could not retrieve response body for {requestId}: {ex.Message}");
+            _logger?.Log("CDP", $"Body retrieval failed: id={requestId}, {ex.Message} — firing entry without body");
 
             // Fire EntryCompleted with entry without body content
             EntryCompleted?.Invoke(entry, requestId);
@@ -593,10 +648,13 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             _adapter.LoadingFinished -= OnLoadingFinished;
             _adapter.LoadingFailed -= OnLoadingFailed;
 
-            // Try to disable Network domain
+            // Try to disable Network domain with timeout to prevent hanging
             try
             {
-                _adapter.DisableNetworkAsync().GetAwaiter().GetResult();
+                if (!_adapter.DisableNetworkAsync().Wait(DisposeTimeoutMs))
+                {
+                    _logger?.Log("CDP", $"Dispose: DisableNetwork timed out after {DisposeTimeoutMs / 1000}s");
+                }
             }
             catch
             {
@@ -606,7 +664,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             _adapter.Dispose();
         }
 
-        _session?.Dispose();
+        // Do NOT dispose _session — it's a driver-cached singleton from GetDevToolsSession().
+        // The driver owns its lifecycle; disposing it here kills the WebSocket for the entire driver
+        // and causes "There is already one outstanding SendAsync call" race conditions.
         _pendingBodyTasks = new ConcurrentBag<Task>();
         _correlator.Clear();
         _responseBodies.Clear();

@@ -17,6 +17,8 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **URL filtering** via glob patterns (include/exclude)
 - **Multi-page capture** support
 - **Response body size limiting** to control memory usage
+- **Streaming capture to file** with O(1) memory — always-valid HAR, crash-safe
+- **File-based diagnostic logging** via `WithLogFile()`
 - **Fluent configuration API**
 - **One-liner capture** via extension methods
 - **Serialization** to/from JSON files
@@ -39,23 +41,20 @@ dotnet add package Selenium.HarCapture
 
 ```csharp
 using Selenium.HarCapture;
-using Selenium.HarCapture.Serialization;
+using Selenium.HarCapture.Capture;
 
-// Create a WebDriver instance
 var driver = new ChromeDriver();
 
-// Start capturing
-using var capture = new HarCapture(driver);
+// Start capturing — entries stream to file immediately, O(1) memory
+var options = new CaptureOptions().WithOutputFile("traffic.har");
+using var capture = new HarCapture(driver, options);
 capture.Start();
 
 // Navigate and interact
 driver.Navigate().GoToUrl("https://example.com");
 
-// Stop and get HAR
-var har = capture.Stop();
-
-// Save to file (HAR 1.2 JSON, openable in browser DevTools)
-await HarSerializer.SaveAsync(har, "traffic.har");
+// Stop and save (file is already written, just finalize)
+capture.StopAndSave();
 ```
 
 ### One-Liner Capture (Extension Methods)
@@ -118,6 +117,8 @@ var options = new CaptureOptions()
     .WithUrlIncludePatterns("**/api/**")       // only API calls
     .WithUrlExcludePatterns("**/*.png", "**/*.css") // skip static assets
     .WithCreatorName("MyTestSuite")
+    .WithOutputFile("capture.har")             // streaming mode (O(1) memory)
+    .WithLogFile("capture.log")                // diagnostic logging
     .ForceSeleniumNetwork();                   // force INetwork API
 ```
 
@@ -142,7 +143,7 @@ var options = new CaptureOptions()
 
 #### URL Filtering
 
-Glob patterns powered by [DotNet.Glob](https://github.com/dazinator/DotNet.Glob):
+Glob patterns for URL filtering:
 
 ```csharp
 // Only capture API requests
@@ -174,10 +175,39 @@ var options = new CaptureOptions().ForceSeleniumNetwork();
 
 | Feature | CDP | INetwork |
 |---|---|---|
-| Detailed timings (dns, connect, ssl, send, wait, receive) | Yes | No |
-| Response body capture | Yes | No |
+| Detailed timings (dns, connect, ssl, send, wait, receive) | Yes | No (basic send/wait/receive only) |
+| Response body capture | Yes | Yes |
 | Cross-browser support | Chrome only | All browsers |
 | Requires specific Chrome version match | Yes | No |
+
+### Streaming Capture to File
+
+For large captures or memory-constrained environments, use streaming mode. Entries are written directly to the file as they arrive — O(1) memory, and the file is always a valid HAR (crash-safe).
+
+```csharp
+var options = new CaptureOptions()
+    .WithOutputFile(@"C:\Logs\capture.har")    // enables streaming mode
+    .WithLogFile(@"C:\Logs\capture.log")        // optional diagnostics
+    .WithMaxResponseBodySize(5_000_000);
+
+using var capture = new HarCapture(driver, options);
+capture.Start("page1", "Home");
+
+driver.Navigate().GoToUrl("https://example.com");
+// entries streamed to file immediately, file is always valid HAR
+
+capture.NewPage("page2", "Dashboard");
+driver.Navigate().GoToUrl("https://example.com/dashboard");
+
+capture.StopAndSave(); // completes file, O(1) memory
+```
+
+| | In-memory (default) | Streaming (`WithOutputFile`) |
+|---|---|---|
+| Memory | O(N) entries in RAM | O(1), each entry serialized directly to file |
+| Stop | `Stop()` or `StopAndSave(path)` | `StopAndSave()` (parameterless) |
+| Crash safety | Data lost | File valid after each entry |
+| `GetHar()` | Full snapshot | Metadata only (pages, creator) |
 
 ### Multi-Page Capture
 
@@ -268,36 +298,48 @@ The library provides a complete HAR 1.2 object model:
 | `HarContent` | Response body (size, MIME type, text, encoding) |
 | `HarTimings` | Timing breakdown (blocked, dns, connect, send, wait, receive, ssl) |
 | `HarPage` | Page metadata (id, title, started time, page timings) |
+| `HarPageTimings` | Page timing info (onContentLoad, onLoad) |
 | `HarCreator` | Creator tool name and version |
+| `HarBrowser` | Browser name and version |
 | `HarCookie` | Cookie details (name, value, path, domain, expires, httpOnly, secure) |
 | `HarHeader` | Header name-value pair |
 | `HarQueryString` | Query parameter name-value pair |
 | `HarPostData` | POST data (MIME type, text, params) |
+| `HarParam` | Posted data parameter (name, value, fileName, contentType) |
 | `HarCache` | Cache usage info |
+| `HarCacheEntry` | Detailed cache entry (expires, lastAccess, eTag, hitCount) |
 
 ## Project Structure
 
 ```
 Selenium.HarCapture/
 ├── src/
-│   └── Selenium.HarCapture/          # Main library (netstandard2.0)
-│       ├── HarCapture.cs             # Public facade
+│   └── Selenium.HarCapture/              # Main library (netstandard2.0)
+│       ├── HarCapture.cs                 # Public facade
 │       ├── Capture/
-│       │   ├── CaptureOptions.cs     # Configuration
-│       │   ├── CaptureType.cs        # Flags enum
-│       │   ├── HarCaptureSession.cs  # Session orchestrator
+│       │   ├── CaptureOptions.cs         # Configuration
+│       │   ├── CaptureType.cs            # Flags enum
+│       │   ├── HarCaptureSession.cs      # Session orchestrator
+│       │   ├── Internal/
+│       │   │   ├── HarStreamWriter.cs    # Incremental HAR file writer (seek-back)
+│       │   │   ├── FileLogger.cs         # Diagnostic file logging
+│       │   │   ├── UrlPatternMatcher.cs  # URL glob filtering
+│       │   │   ├── RequestResponseCorrelator.cs
+│       │   │   ├── CdpTimingMapper.cs
+│       │   │   └── Cdp/                  # CDP reflection adapters
 │       │   └── Strategies/
-│       │       ├── ICaptureStrategy.cs
+│       │       ├── INetworkCaptureStrategy.cs
+│       │       ├── StrategyFactory.cs
 │       │       ├── CdpNetworkCaptureStrategy.cs
 │       │       └── SeleniumNetworkCaptureStrategy.cs
 │       ├── Extensions/
-│       │   └── WebDriverExtensions.cs # One-liner methods
-│       ├── Models/                    # HAR 1.2 data model
+│       │   └── WebDriverExtensions.cs    # One-liner methods
+│       ├── Models/                        # HAR 1.2 data model
 │       └── Serialization/
-│           └── HarSerializer.cs       # JSON serialization
+│           └── HarSerializer.cs           # JSON serialization
 └── tests/
-    ├── Selenium.HarCapture.Tests/             # Unit tests (126 tests)
-    └── Selenium.HarCapture.IntegrationTests/  # Integration tests (18 tests)
+    ├── Selenium.HarCapture.Tests/             # Unit tests (151 tests)
+    └── Selenium.HarCapture.IntegrationTests/  # Integration tests (25 tests)
 ```
 
 ## Running Tests
@@ -327,8 +369,9 @@ Integration tests launch a real Chrome browser (headless) and a local ASP.NET Co
 
 | Test Class | Tests | Description |
 |---|---|---|
-| `BasicCaptureTests` | 3 | URL capture, status codes, CDP timings |
-| `ResponseBodyCaptureTests` | 2 | Response body capture, max body size (CDP only) |
+| `BasicCaptureTests` | 2 | URL capture, status codes |
+| `CdpCaptureTests` | 5 | CDP entries, serialization, headers, subresources, consistency |
+| `INetworkCaptureTests` | 5 | INetwork entries, serialization, response body, large responses, sync save |
 | `UrlFilteringTests` | 2 | Include/exclude URL glob patterns |
 | `MultiPageCaptureTests` | 1 | Multi-page capture with correct PageRef |
 | `ExtensionMethodTests` | 4 | StartHarCapture, fluent config, CaptureHarAsync, CaptureHar |

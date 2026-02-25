@@ -51,22 +51,17 @@ internal static class StrategyFactory
             try
             {
                 logger?.Log("HarCapture", "IDevTools detected, attempting CDP strategy");
-                // Validate CDP session and version-specific domains (test then discard)
+                // Validate CDP version compatibility (session is a driver-cached singleton — never dispose it)
                 var session = devToolsDriver.GetDevToolsSession();
-                try
-                {
-                    var adapter = CdpAdapterFactory.Create(session);
-                    adapter.Dispose();
-                }
-                finally
-                {
-                    session.Dispose();
-                }
+                var adapter = CdpAdapterFactory.Create(session, logger);
+                adapter.Dispose();
+                logger?.Log("HarCapture", "CDP adapter validated successfully");
                 return new CdpNetworkCaptureStrategy(driver, logger);
             }
             catch (Exception ex)
             {
-                logger?.Log("HarCapture", $"CDP session creation failed: {ex.Message}, falling back to INetwork strategy");
+                var innerMsg = ex.InnerException != null ? $" Inner: {ex.InnerException.Message}" : "";
+                logger?.Log("HarCapture", $"CDP session creation failed: {ex.Message}{innerMsg}, falling back to INetwork strategy");
                 return new SeleniumNetworkCaptureStrategy(driver, logger);
             }
         }

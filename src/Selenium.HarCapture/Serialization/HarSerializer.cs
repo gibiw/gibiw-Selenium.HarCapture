@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -71,7 +72,7 @@ public static class HarSerializer
             throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
         }
 
-        using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+        using var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 65536, useAsync: true);
         await JsonSerializer.SerializeAsync(stream, har, CreateOptions(writeIndented), cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -156,12 +157,16 @@ public static class HarSerializer
     /// </summary>
     /// <param name="writeIndented">Whether to format output with indentation.</param>
     /// <returns>Configured JsonSerializerOptions instance.</returns>
-    private static JsonSerializerOptions CreateOptions(bool writeIndented)
+    internal static JsonSerializerOptions CreateOptions(bool writeIndented)
     {
         var options = new JsonSerializerOptions
         {
             WriteIndented = writeIndented,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            // UnsafeRelaxedJsonEscaping only escapes " and \ (instead of <, >, &, +, ' etc.)
+            // This dramatically reduces buffer allocation in WriteStringEscapeValue for large
+            // response bodies (HTML/JS). Safe for HAR files which are consumed programmatically.
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
         // Register custom converters for DateTimeOffset handling

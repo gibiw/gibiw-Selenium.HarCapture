@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using OpenQA.Selenium;
@@ -26,6 +27,7 @@ public sealed class HarCaptureSession : IDisposable
     private readonly FileLogger? _logger;
     private readonly object _lock = new object();
     private INetworkCaptureStrategy? _strategy;
+    private HarStreamWriter? _streamWriter;
     private Har _har = null!;
     private string? _currentPageRef;
     private bool _isCapturing;
@@ -41,6 +43,22 @@ public sealed class HarCaptureSession : IDisposable
     /// Returns null if no strategy is configured.
     /// </summary>
     public string? ActiveStrategyName => _strategy?.StrategyName;
+
+    /// <summary>
+    /// Gets the file logger for diagnostic logging.
+    /// Used internally by HarCapture for StopAndSave logging.
+    /// </summary>
+    internal FileLogger? Logger => _logger;
+
+    /// <summary>
+    /// Gets whether the session is in streaming mode (writing entries to file incrementally).
+    /// </summary>
+    internal bool IsStreamingMode => _streamWriter != null;
+
+    /// <summary>
+    /// Gets the configured output file path, if any.
+    /// </summary>
+    internal string? OutputFilePath => _options.OutputFilePath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarCaptureSession"/> class without a strategy.
@@ -119,10 +137,34 @@ public sealed class HarCaptureSession : IDisposable
             throw new InvalidOperationException("No capture strategy configured. Use the constructor that accepts IWebDriver for automatic strategy selection.");
         }
 
+        _logger?.Log("HarCapture", $"StartAsync: strategy={_strategy.StrategyName}, captureTypes={_options.CaptureTypes}, maxBodySize={_options.MaxResponseBodySize}");
+        _logger?.Log("HarCapture", $"URL filtering: include={_options.UrlIncludePatterns?.Count ?? 0}, exclude={_options.UrlExcludePatterns?.Count ?? 0}");
+
         _strategy.EntryCompleted += OnEntryCompleted;
         InitializeHar(initialPageRef, initialPageTitle);
+
+        if (_options.OutputFilePath != null)
+        {
+            var dir = Path.GetDirectoryName(_options.OutputFilePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            _streamWriter = new HarStreamWriter(
+                _options.OutputFilePath,
+                _har.Log.Version, _har.Log.Creator,
+                _har.Log.Browser, _har.Log.Comment,
+                _har.Log.Pages, _logger);
+            _logger?.Log("HarCapture", $"Streaming mode: {_options.OutputFilePath}");
+        }
+
+        if (initialPageRef != null)
+        {
+            _logger?.Log("HarCapture", $"Initial page: ref={initialPageRef}, title={initialPageTitle}");
+        }
+
         await _strategy.StartAsync(_options).ConfigureAwait(false);
         _isCapturing = true;
+        _logger?.Log("HarCapture", "Capture started");
     }
 
     /// <summary>
@@ -155,9 +197,20 @@ public sealed class HarCaptureSession : IDisposable
             throw new InvalidOperationException("Capture is not started.");
         }
 
+        _logger?.Log("HarCapture", "StopAsync called");
         await _strategy!.StopAsync().ConfigureAwait(false);
         _isCapturing = false;
         _strategy.EntryCompleted -= OnEntryCompleted;
+
+        if (_streamWriter != null)
+        {
+            _streamWriter.Complete();
+            _logger?.Log("HarCapture", $"Streaming completed: {_streamWriter.Count} entries, {_har.Log.Pages?.Count ?? 0} pages");
+        }
+        else
+        {
+            _logger?.Log("HarCapture", $"Capture stopped: {_har.Log.Entries?.Count ?? 0} entries, {_har.Log.Pages?.Count ?? 0} pages");
+        }
 
         // No clone needed - capture is stopped, return the final state
         return _har;
@@ -207,6 +260,8 @@ public sealed class HarCaptureSession : IDisposable
 
         lock (_lock)
         {
+            _logger?.Log("HarCapture", $"NewPage: ref={pageRef}, title={pageTitle}, entriesSoFar={_har.Log.Entries?.Count ?? 0}");
+
             // Create new page
             var page = new HarPage
             {
@@ -222,22 +277,42 @@ public sealed class HarCaptureSession : IDisposable
                 page
             };
 
-            // Keep existing entries
-            var entries = new List<HarEntry>(_har.Log.Entries ?? (IEnumerable<HarEntry>)Array.Empty<HarEntry>());
-
-            // Recreate Har with new page added
-            _har = new Har
+            if (_streamWriter != null)
             {
-                Log = new HarLog
+                // Streaming mode: write page to file, keep entries empty in memory
+                _streamWriter.AddPage(page);
+
+                _har = new Har
                 {
-                    Version = _har.Log.Version,
-                    Creator = _har.Log.Creator,
-                    Browser = _har.Log.Browser,
-                    Pages = pages,
-                    Entries = entries,
-                    Comment = _har.Log.Comment
-                }
-            };
+                    Log = new HarLog
+                    {
+                        Version = _har.Log.Version,
+                        Creator = _har.Log.Creator,
+                        Browser = _har.Log.Browser,
+                        Pages = pages,
+                        Entries = new List<HarEntry>(),
+                        Comment = _har.Log.Comment
+                    }
+                };
+            }
+            else
+            {
+                // In-memory mode: keep existing entries
+                var entries = new List<HarEntry>(_har.Log.Entries ?? (IEnumerable<HarEntry>)Array.Empty<HarEntry>());
+
+                _har = new Har
+                {
+                    Log = new HarLog
+                    {
+                        Version = _har.Log.Version,
+                        Creator = _har.Log.Creator,
+                        Browser = _har.Log.Browser,
+                        Pages = pages,
+                        Entries = entries,
+                        Comment = _har.Log.Comment
+                    }
+                };
+            }
 
             _currentPageRef = pageRef;
         }
@@ -267,6 +342,23 @@ public sealed class HarCaptureSession : IDisposable
 
         lock (_lock)
         {
+            if (_streamWriter != null)
+            {
+                // Streaming mode: return metadata only (entries are in the file)
+                return new Har
+                {
+                    Log = new HarLog
+                    {
+                        Version = _har.Log.Version,
+                        Creator = _har.Log.Creator,
+                        Browser = _har.Log.Browser,
+                        Pages = _har.Log.Pages != null ? new List<HarPage>(_har.Log.Pages) : null,
+                        Entries = new List<HarEntry>(),
+                        Comment = _har.Log.Comment
+                    }
+                };
+            }
+
             // Deep clone via JSON round-trip
             var json = HarSerializer.Serialize(_har, writeIndented: false);
             return HarSerializer.Deserialize(json);
@@ -326,9 +418,12 @@ public sealed class HarCaptureSession : IDisposable
     /// <param name="requestId">The internal request ID (not used here).</param>
     private void OnEntryCompleted(HarEntry entry, string requestId)
     {
+        _logger?.Log("HarCapture", $"EntryCompleted: {entry.Request.Method} {entry.Request.Url} → {entry.Response.Status}");
+
         // Filter by URL pattern
         if (!_urlMatcher.ShouldCapture(entry.Request.Url))
         {
+            _logger?.Log("HarCapture", $"Entry filtered out by URL pattern: {entry.Request.Url}");
             return;
         }
 
@@ -353,25 +448,34 @@ public sealed class HarCaptureSession : IDisposable
                 };
             }
 
-            // Build new entries list
-            var entries = new List<HarEntry>(_har.Log.Entries ?? (IEnumerable<HarEntry>)Array.Empty<HarEntry>())
+            if (_streamWriter != null)
             {
-                entryToAdd
-            };
-
-            // Rebuild Har with new entries list
-            _har = new Har
+                _streamWriter.WriteEntry(entryToAdd);
+                _logger?.Log("HarCapture", $"Entry streamed: pageRef={_currentPageRef ?? "(none)"}, total={_streamWriter.Count}");
+            }
+            else
             {
-                Log = new HarLog
+                // In-memory mode: accumulate entries in _har
+                var entries = new List<HarEntry>(_har.Log.Entries ?? (IEnumerable<HarEntry>)Array.Empty<HarEntry>())
                 {
-                    Version = _har.Log.Version,
-                    Creator = _har.Log.Creator,
-                    Browser = _har.Log.Browser,
-                    Pages = _har.Log.Pages,
-                    Entries = entries,
-                    Comment = _har.Log.Comment
-                }
-            };
+                    entryToAdd
+                };
+
+                _har = new Har
+                {
+                    Log = new HarLog
+                    {
+                        Version = _har.Log.Version,
+                        Creator = _har.Log.Creator,
+                        Browser = _har.Log.Browser,
+                        Pages = _har.Log.Pages,
+                        Entries = entries,
+                        Comment = _har.Log.Comment
+                    }
+                };
+
+                _logger?.Log("HarCapture", $"Entry added: pageRef={_currentPageRef ?? "(none)"}, totalEntries={entries.Count}");
+            }
         }
     }
 
@@ -384,6 +488,11 @@ public sealed class HarCaptureSession : IDisposable
         {
             return;
         }
+
+        _logger?.Log("HarCapture", "Session disposed");
+
+        _streamWriter?.Dispose();
+        _streamWriter = null;
 
         if (_strategy != null)
         {

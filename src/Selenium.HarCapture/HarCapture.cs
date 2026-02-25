@@ -1,8 +1,10 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using OpenQA.Selenium;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Models;
+using Selenium.HarCapture.Serialization;
 
 namespace Selenium.HarCapture;
 
@@ -117,6 +119,102 @@ public sealed class HarCapture : IDisposable, IAsyncDisposable
     public Har Stop()
     {
         return StopAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Asynchronously stops capture when streaming mode is active (OutputFilePath configured).
+    /// The HAR file is already written incrementally; this method completes the file and logs the result.
+    /// </summary>
+    /// <returns>A task that represents the asynchronous stop-and-save operation.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when OutputFilePath is not configured or capture is not started.</exception>
+    public async Task StopAndSaveAsync()
+    {
+        ThrowIfDisposed();
+        if (_session!.OutputFilePath == null)
+            throw new InvalidOperationException(
+                "Parameterless StopAndSaveAsync requires OutputFilePath to be configured via WithOutputFile().");
+
+        var logger = _session.Logger;
+        logger?.Log("HarCapture", "StopAndSave (streaming): stopping...");
+        await _session.StopAsync().ConfigureAwait(false);
+
+        var fileSize = new FileInfo(_session.OutputFilePath).Length;
+        logger?.Log("HarCapture", $"StopAndSave (streaming): completed ({fileSize} bytes)");
+    }
+
+    /// <summary>
+    /// Synchronously stops capture when streaming mode is active (OutputFilePath configured).
+    /// The HAR file is already written incrementally; this method completes the file and logs the result.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when OutputFilePath is not configured or capture is not started.</exception>
+    public void StopAndSave()
+    {
+        StopAndSaveAsync().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Asynchronously stops capture and saves the HAR to a file.
+    /// Combines Stop + Save into a single call with diagnostic logging via <see cref="CaptureOptions.LogFilePath"/>.
+    /// </summary>
+    /// <param name="filePath">The path to the file where the HAR will be saved.</param>
+    /// <param name="writeIndented">If true, formats the JSON with indentation for readability. Default is true.</param>
+    /// <returns>A task whose result contains the final HAR object.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when capture is not started.</exception>
+    /// <exception cref="ArgumentException">Thrown when filePath is null or empty.</exception>
+    public async Task<Har> StopAndSaveAsync(string filePath, bool writeIndented = true)
+    {
+        ThrowIfDisposed();
+
+        if (string.IsNullOrEmpty(filePath))
+        {
+            throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+        }
+
+        var logger = _session!.Logger;
+
+        logger?.Log("HarCapture", "StopAndSave: stopping capture...");
+        var har = await _session.StopAsync().ConfigureAwait(false);
+
+        logger?.Log("HarCapture", $"StopAndSave: saving {har.Log.Entries?.Count ?? 0} entries to {filePath}");
+        try
+        {
+            var dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                logger?.Log("HarCapture", $"StopAndSave: creating directory {dir}");
+                Directory.CreateDirectory(dir);
+            }
+
+            await HarSerializer.SaveAsync(har, filePath, writeIndented).ConfigureAwait(false);
+
+            var fileSize = new FileInfo(filePath).Length;
+            logger?.Log("HarCapture", $"StopAndSave: saved successfully ({fileSize} bytes)");
+        }
+        catch (Exception ex)
+        {
+            logger?.Log("HarCapture", $"StopAndSave: save failed: {ex}");
+            throw;
+        }
+
+        return har;
+    }
+
+    /// <summary>
+    /// Synchronously stops capture and saves the HAR to a file.
+    /// Combines Stop + Save into a single call with diagnostic logging via <see cref="CaptureOptions.LogFilePath"/>.
+    /// </summary>
+    /// <param name="filePath">The path to the file where the HAR will be saved.</param>
+    /// <param name="writeIndented">If true, formats the JSON with indentation for readability. Default is true.</param>
+    /// <returns>The final HAR object.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when capture is not started.</exception>
+    /// <exception cref="ArgumentException">Thrown when filePath is null or empty.</exception>
+    public Har StopAndSave(string filePath, bool writeIndented = true)
+    {
+        return StopAndSaveAsync(filePath, writeIndented).GetAwaiter().GetResult();
     }
 
     /// <summary>

@@ -118,6 +118,18 @@ public sealed class CaptureOptions
     }
 
     /// <summary>
+    /// Gets or sets the output file path for streaming HAR capture.
+    /// When set, entries are written incrementally to the file instead of being accumulated in memory.
+    /// Default is null (in-memory mode).
+    /// </summary>
+    /// <remarks>
+    /// When set, entries are serialized directly to the file as they arrive, keeping the file
+    /// always valid JSON. This eliminates OOM issues for large captures. Use parameterless
+    /// <c>StopAndSave()</c> / <c>StopAndSaveAsync()</c> when this option is configured.
+    /// </remarks>
+    public string? OutputFilePath { get; set; }
+
+    /// <summary>
     /// Gets or sets the file path for diagnostic log output.
     /// Default is null (logging is disabled).
     /// </summary>
@@ -126,6 +138,18 @@ public sealed class CaptureOptions
     /// The file is opened in append mode. Set to null to disable file logging.
     /// </remarks>
     public string? LogFilePath { get; set; }
+
+    /// <summary>
+    /// Sets the output file path for streaming HAR capture.
+    /// Entries will be written incrementally to the file, keeping it always valid.
+    /// </summary>
+    /// <param name="path">The file path to write HAR data to.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithOutputFile(string path)
+    {
+        OutputFilePath = path;
+        return this;
+    }
 
     /// <summary>
     /// Forces the use of Selenium's INetwork API even if CDP is available.
