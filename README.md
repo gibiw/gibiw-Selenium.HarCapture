@@ -19,6 +19,7 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **Response body size limiting** to control memory usage
 - **Streaming capture to file** with O(1) memory — always-valid HAR, crash-safe
 - **File-based diagnostic logging** via `WithLogFile()`
+- **Browser auto-detection** from WebDriver capabilities with manual override
 - **Fluent configuration API**
 - **One-liner capture** via extension methods
 - **Serialization** to/from JSON files
@@ -117,6 +118,7 @@ var options = new CaptureOptions()
     .WithUrlIncludePatterns("**/api/**")       // only API calls
     .WithUrlExcludePatterns("**/*.png", "**/*.css") // skip static assets
     .WithCreatorName("MyTestSuite")
+    .WithBrowser("Chrome", "131.0.6778.86")   // manual browser override (auto-detected by default)
     .WithOutputFile("capture.har")             // streaming mode (O(1) memory)
     .WithLogFile("capture.log")                // diagnostic logging
     .ForceSeleniumNetwork();                   // force INetwork API
@@ -179,6 +181,29 @@ var options = new CaptureOptions().ForceSeleniumNetwork();
 | Response body capture | Yes | Yes |
 | Cross-browser support | Chrome only | All browsers |
 | Requires specific Chrome version match | Yes | No |
+
+### Browser Auto-Detection
+
+The library automatically detects the browser name and version from WebDriver capabilities — no configuration needed:
+
+```csharp
+var driver = new ChromeDriver();
+using var capture = new HarCapture(driver);
+capture.Start();
+
+// HAR output will include: "browser": { "name": "Chrome", "version": "131.0.6778.86" }
+```
+
+Browser names are normalized for consistency (e.g., `chrome` → `Chrome`, `MicrosoftEdge` → `Microsoft Edge`).
+
+To override auto-detected values:
+
+```csharp
+var options = new CaptureOptions()
+    .WithBrowser("CustomBrowser", "1.0");
+
+using var capture = new HarCapture(driver, options);
+```
 
 ### Streaming Capture to File
 
@@ -322,6 +347,7 @@ Selenium.HarCapture/
 │       │   ├── HarCaptureSession.cs      # Session orchestrator
 │       │   ├── Internal/
 │       │   │   ├── HarStreamWriter.cs    # Incremental HAR file writer (seek-back)
+│       │   │   ├── BrowserCapabilityExtractor.cs # Browser auto-detection
 │       │   │   ├── FileLogger.cs         # Diagnostic file logging
 │       │   │   ├── UrlPatternMatcher.cs  # URL glob filtering
 │       │   │   ├── RequestResponseCorrelator.cs
@@ -338,7 +364,7 @@ Selenium.HarCapture/
 │       └── Serialization/
 │           └── HarSerializer.cs           # JSON serialization
 └── tests/
-    ├── Selenium.HarCapture.Tests/             # Unit tests (151 tests)
+    ├── Selenium.HarCapture.Tests/             # Unit tests (184 tests)
     └── Selenium.HarCapture.IntegrationTests/  # Integration tests (25 tests)
 ```
 
