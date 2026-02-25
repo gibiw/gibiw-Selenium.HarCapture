@@ -22,6 +22,7 @@ namespace Selenium.HarCapture.Capture.Strategies;
 internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 {
     private readonly IWebDriver _driver;
+    private readonly FileLogger? _logger;
     private DevToolsSession? _session;
     private ICdpNetworkAdapter? _adapter;
     private CaptureOptions _options = null!;
@@ -36,9 +37,10 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// </summary>
     /// <param name="driver">The WebDriver instance. Must implement IDevTools (Chromium-based browsers).</param>
     /// <exception cref="ArgumentNullException">Thrown when driver is null.</exception>
-    internal CdpNetworkCaptureStrategy(IWebDriver driver)
+    internal CdpNetworkCaptureStrategy(IWebDriver driver, FileLogger? logger = null)
     {
         _driver = driver ?? throw new ArgumentNullException(nameof(driver));
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -148,7 +150,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         catch (Exception ex)
         {
             // Don't let exceptions in event handlers crash the capture
-            System.Diagnostics.Debug.WriteLine($"[CDP] Error in OnRequestWillBeSent: {ex.Message}");
+            _logger?.Log("CDP", $"Error in OnRequestWillBeSent: {ex.Message}");
         }
     }
 
@@ -207,7 +209,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CDP] Error in OnResponseReceived: {ex.Message}");
+            _logger?.Log("CDP", $"Error in OnResponseReceived: {ex.Message}");
         }
     }
 
@@ -323,7 +325,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         catch (Exception ex)
         {
             // "No resource with given identifier found" is expected when resource was already dumped
-            System.Diagnostics.Debug.WriteLine($"[CDP] Could not retrieve response body for {requestId}: {ex.Message}");
+            _logger?.Log("CDP", $"Could not retrieve response body for {requestId}: {ex.Message}");
 
             // Fire EntryCompleted with entry without body content
             EntryCompleted?.Invoke(entry, requestId);

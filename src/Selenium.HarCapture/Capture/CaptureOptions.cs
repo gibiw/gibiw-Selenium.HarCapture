@@ -118,12 +118,33 @@ public sealed class CaptureOptions
     }
 
     /// <summary>
+    /// Gets or sets the file path for diagnostic log output.
+    /// Default is null (logging is disabled).
+    /// </summary>
+    /// <remarks>
+    /// When set, diagnostic messages are written to the specified file instead of Debug.WriteLine.
+    /// The file is opened in append mode. Set to null to disable file logging.
+    /// </remarks>
+    public string? LogFilePath { get; set; }
+
+    /// <summary>
     /// Forces the use of Selenium's INetwork API even if CDP is available.
     /// </summary>
     /// <returns>The current instance for method chaining.</returns>
     public CaptureOptions ForceSeleniumNetwork()
     {
         ForceSeleniumNetworkApi = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the file path for diagnostic log output.
+    /// </summary>
+    /// <param name="path">The file path to write logs to.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithLogFile(string path)
+    {
+        LogFilePath = path;
         return this;
     }
 }

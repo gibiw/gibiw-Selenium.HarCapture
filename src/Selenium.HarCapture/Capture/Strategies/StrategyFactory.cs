@@ -1,7 +1,7 @@
 using System;
-using System.Diagnostics;
 using OpenQA.Selenium;
 using OpenQA.Selenium.DevTools;
+using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Capture.Internal.Cdp;
 
 namespace Selenium.HarCapture.Capture.Strategies;
@@ -26,7 +26,7 @@ internal static class StrategyFactory
     /// 2. If driver implements IDevTools, attempt CDP strategy with runtime fallback to INetwork
     /// 3. If driver does not implement IDevTools, throw InvalidOperationException
     /// </remarks>
-    internal static INetworkCaptureStrategy Create(IWebDriver driver, CaptureOptions options)
+    internal static INetworkCaptureStrategy Create(IWebDriver driver, CaptureOptions options, FileLogger? logger = null)
     {
         if (driver == null)
         {
@@ -41,8 +41,8 @@ internal static class StrategyFactory
         // User forced INetwork strategy
         if (options.ForceSeleniumNetworkApi)
         {
-            Debug.WriteLine("[HarCapture] ForceSeleniumNetworkApi=true, using INetwork strategy");
-            return new SeleniumNetworkCaptureStrategy(driver);
+            logger?.Log("HarCapture", "ForceSeleniumNetworkApi=true, using INetwork strategy");
+            return new SeleniumNetworkCaptureStrategy(driver, logger);
         }
 
         // Capability detection - try CDP if driver supports IDevTools
@@ -50,7 +50,7 @@ internal static class StrategyFactory
         {
             try
             {
-                Debug.WriteLine("[HarCapture] IDevTools detected, attempting CDP strategy");
+                logger?.Log("HarCapture", "IDevTools detected, attempting CDP strategy");
                 // Validate CDP session and version-specific domains (test then discard)
                 var session = devToolsDriver.GetDevToolsSession();
                 try
@@ -62,12 +62,12 @@ internal static class StrategyFactory
                 {
                     session.Dispose();
                 }
-                return new CdpNetworkCaptureStrategy(driver);
+                return new CdpNetworkCaptureStrategy(driver, logger);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[HarCapture] CDP session creation failed: {ex.Message}, falling back to INetwork strategy");
-                return new SeleniumNetworkCaptureStrategy(driver);
+                logger?.Log("HarCapture", $"CDP session creation failed: {ex.Message}, falling back to INetwork strategy");
+                return new SeleniumNetworkCaptureStrategy(driver, logger);
             }
         }
 

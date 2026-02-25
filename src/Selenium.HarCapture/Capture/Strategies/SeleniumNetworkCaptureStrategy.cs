@@ -18,6 +18,7 @@ namespace Selenium.HarCapture.Capture.Strategies;
 internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
 {
     private readonly IWebDriver _driver;
+    private readonly FileLogger? _logger;
     private INetwork? _network;
     private CaptureOptions _options = null!;
     private readonly RequestResponseCorrelator _correlator = new();
@@ -30,9 +31,10 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
     /// </summary>
     /// <param name="driver">The WebDriver instance.</param>
     /// <exception cref="ArgumentNullException">Thrown when driver is null.</exception>
-    internal SeleniumNetworkCaptureStrategy(IWebDriver driver)
+    internal SeleniumNetworkCaptureStrategy(IWebDriver driver, FileLogger? logger = null)
     {
         _driver = driver ?? throw new ArgumentNullException(nameof(driver));
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -117,7 +119,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         catch (Exception ex)
         {
             // Don't let exceptions in event handlers crash the capture
-            System.Diagnostics.Debug.WriteLine($"[INetwork] Error in OnNetworkRequestSent: {ex.Message}");
+            _logger?.Log("INetwork", $"Error in OnNetworkRequestSent: {ex.Message}");
         }
     }
 
@@ -157,7 +159,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[INetwork] Error in OnNetworkResponseReceived: {ex.Message}");
+            _logger?.Log("INetwork", $"Error in OnNetworkResponseReceived: {ex.Message}");
         }
     }
 

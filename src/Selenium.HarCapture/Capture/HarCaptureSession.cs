@@ -23,6 +23,7 @@ public sealed class HarCaptureSession : IDisposable
 {
     private readonly CaptureOptions _options;
     private readonly UrlPatternMatcher _urlMatcher;
+    private readonly FileLogger? _logger;
     private readonly object _lock = new object();
     private INetworkCaptureStrategy? _strategy;
     private Har _har = null!;
@@ -53,6 +54,7 @@ public sealed class HarCaptureSession : IDisposable
     {
         _options = options ?? new CaptureOptions();
         _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
+        _logger = FileLogger.Create(_options.LogFilePath);
     }
 
     /// <summary>
@@ -72,7 +74,8 @@ public sealed class HarCaptureSession : IDisposable
 
         _options = options ?? new CaptureOptions();
         _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
-        _strategy = StrategyFactory.Create(driver, _options);
+        _logger = FileLogger.Create(_options.LogFilePath);
+        _strategy = StrategyFactory.Create(driver, _options, _logger);
     }
 
     /// <summary>
@@ -88,6 +91,7 @@ public sealed class HarCaptureSession : IDisposable
         _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
         _options = options ?? new CaptureOptions();
         _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
+        _logger = FileLogger.Create(_options.LogFilePath);
     }
 
     /// <summary>
@@ -388,6 +392,7 @@ public sealed class HarCaptureSession : IDisposable
             _strategy = null;
         }
 
+        _logger?.Dispose();
         _disposed = true;
     }
 }
