@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -107,6 +108,83 @@ public class SeleniumNetworkCaptureStrategyTests
         Action act = () => strategy.Dispose();
 
         act.Should().NotThrow("Dispose should be idempotent");
+    }
+
+    [Theory]
+    [InlineData("application/json; charset=utf-8", "application/json")]
+    [InlineData("application/json", "application/json")]
+    [InlineData("text/plain", "text/plain")]
+    [InlineData("multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW", "multipart/form-data")]
+    [InlineData("application/x-www-form-urlencoded", "application/x-www-form-urlencoded")]
+    public void ExtractRequestMimeType_WithContentTypeHeader_ReturnsMediaType(string contentTypeValue, string expectedMimeType)
+    {
+        // Arrange
+        var headers = new Dictionary<string, string>
+        {
+            { "Content-Type", contentTypeValue }
+        };
+
+        // Act
+        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+
+        // Assert
+        result.Should().Be(expectedMimeType);
+    }
+
+    [Fact]
+    public void ExtractRequestMimeType_WithoutContentTypeHeader_ReturnsDefault()
+    {
+        // Arrange
+        var headers = new Dictionary<string, string>
+        {
+            { "Accept", "application/json" },
+            { "User-Agent", "TestAgent" }
+        };
+
+        // Act
+        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+
+        // Assert
+        result.Should().Be("application/octet-stream");
+    }
+
+    [Fact]
+    public void ExtractRequestMimeType_WithNullHeaders_ReturnsDefault()
+    {
+        // Act
+        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(null);
+
+        // Assert
+        result.Should().Be("application/octet-stream");
+    }
+
+    [Fact]
+    public void ExtractRequestMimeType_WithEmptyHeaders_ReturnsDefault()
+    {
+        // Arrange
+        var headers = new Dictionary<string, string>();
+
+        // Act
+        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+
+        // Assert
+        result.Should().Be("application/octet-stream");
+    }
+
+    [Fact]
+    public void ExtractRequestMimeType_CaseInsensitive_ReturnsMediaType()
+    {
+        // Arrange
+        var headers = new Dictionary<string, string>
+        {
+            { "content-type", "application/xml" }
+        };
+
+        // Act
+        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+
+        // Assert
+        result.Should().Be("application/xml");
     }
 
     /// <summary>
