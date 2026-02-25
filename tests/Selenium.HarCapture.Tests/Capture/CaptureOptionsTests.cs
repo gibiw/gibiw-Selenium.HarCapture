@@ -152,4 +152,30 @@ public sealed class CaptureOptionsTests
         options.ForceSeleniumNetworkApi.Should().BeTrue();
         result.Should().BeSameAs(options);
     }
+
+    [Fact]
+    public void BrowserOverride_DefaultIsNull()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.BrowserName.Should().BeNull();
+        options.BrowserVersion.Should().BeNull();
+    }
+
+    [Fact]
+    public void FluentApi_WithBrowser_SetsOverrideAndReturnsThis()
+    {
+        // Arrange
+        var options = new CaptureOptions();
+
+        // Act
+        var result = options.WithBrowser("MyBrowser", "1.0");
+
+        // Assert
+        options.BrowserName.Should().Be("MyBrowser");
+        options.BrowserVersion.Should().Be("1.0");
+        result.Should().BeSameAs(options);
+    }
 }

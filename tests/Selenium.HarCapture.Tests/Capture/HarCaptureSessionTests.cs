@@ -371,6 +371,62 @@ public sealed class HarCaptureSessionTests
         session.Should().NotBeNull();
     }
 
+    [Fact]
+    public void Start_WithCapabilitiesDriver_AutoDetectsBrowserInHar()
+    {
+        // Arrange
+        var capabilities = new MockCapabilities();
+        capabilities.Set("browserName", "chrome");
+        capabilities.Set("browserVersion", "142.0");
+        var driver = new FakeCapabilitiesDevToolsDriver { Capabilities = capabilities };
+        var session = new HarCaptureSession(driver);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Browser.Should().NotBeNull();
+        har.Log.Browser!.Name.Should().Be("Chrome");
+        har.Log.Browser.Version.Should().Be("142.0");
+    }
+
+    [Fact]
+    public void Start_WithBrowserOverride_UsesOverrideInsteadOfAutoDetection()
+    {
+        // Arrange
+        var capabilities = new MockCapabilities();
+        capabilities.Set("browserName", "chrome");
+        capabilities.Set("browserVersion", "142.0");
+        var driver = new FakeCapabilitiesDevToolsDriver { Capabilities = capabilities };
+        var options = new CaptureOptions().WithBrowser("Custom", "9.9");
+        var session = new HarCaptureSession(driver, options);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Browser.Should().NotBeNull();
+        har.Log.Browser!.Name.Should().Be("Custom");
+        har.Log.Browser.Version.Should().Be("9.9");
+    }
+
+    [Fact]
+    public void Start_WithoutCapabilities_OmitsBrowserFromHar()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Browser.Should().BeNull();
+    }
+
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
     {
         return new HarEntry
@@ -586,6 +642,115 @@ public sealed class HarCaptureSessionTests
         public void CloseDevToolsSession()
         {
             // No-op
+        }
+    }
+
+    /// <summary>
+    /// Fake driver that implements IDevTools and IHasCapabilities for testing browser auto-detection.
+    /// Used to test browser info extraction from capabilities.
+    /// </summary>
+    private class FakeCapabilitiesDevToolsDriver : IWebDriver, IDevTools, IHasCapabilities
+    {
+        public ICapabilities Capabilities { get; set; } = null!;
+
+        public string Url
+        {
+            get => throw new NotImplementedException();
+            set => throw new NotImplementedException();
+        }
+
+        public string Title => throw new NotImplementedException();
+
+        public string PageSource => throw new NotImplementedException();
+
+        public string CurrentWindowHandle => throw new NotImplementedException();
+
+        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
+
+        public bool HasActiveDevToolsSession => false;
+
+        public void Close()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Quit()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IOptions Manage()
+        {
+            throw new NotImplementedException();
+        }
+
+        public INavigation Navigate()
+        {
+            throw new NotImplementedException();
+        }
+
+        public ITargetLocator SwitchTo()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IWebElement FindElement(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ReadOnlyCollection<IWebElement> FindElements(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
+        {
+            // No-op
+        }
+
+        public DevToolsSession GetDevToolsSession()
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public DevToolsSession GetDevToolsSession(int devToolsProtocolVersion)
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public DevToolsSession GetDevToolsSession(DevToolsOptions options)
+        {
+            throw new WebDriverException("CDP not available");
+        }
+
+        public void CloseDevToolsSession()
+        {
+            // No-op
+        }
+    }
+
+    private class MockCapabilities : ICapabilities
+    {
+        private readonly Dictionary<string, object?> _caps = new();
+
+        public void Set(string key, object? value) => _caps[key] = value;
+
+        public object? this[string capabilityName] => GetCapability(capabilityName);
+
+        public object? GetCapability(string capabilityName)
+        {
+            return _caps.TryGetValue(capabilityName, out var value) ? value : null;
+        }
+
+        public bool HasCapability(string capabilityName)
+        {
+            return _caps.ContainsKey(capabilityName);
+        }
+
+        public IDictionary<string, object> ToDictionary()
+        {
+            throw new NotImplementedException();
         }
     }
 }
