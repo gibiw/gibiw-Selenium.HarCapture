@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.5] - 2026-02-25
+## [0.2.0] - 2026-02-25
 
 ### Added
 
@@ -10,15 +10,9 @@ All notable changes to this project will be documented in this file.
 - `BrowserCapabilityExtractor` — internal helper that extracts and normalizes browser name/version from W3C standard capability keys.
 - Browser name normalization for standard browsers (chrome → Chrome, MicrosoftEdge → Microsoft Edge, firefox → Firefox, etc.).
 - `CaptureOptions.WithBrowser(name, version)` fluent method for manual browser override (takes precedence over auto-detection).
-- 15 new unit tests for browser auto-detection, normalization, and override.
-
-## [0.1.4] - 2026-02-25
-
-### Added
-
 - **Request MimeType extraction** — `HarPostData.MimeType` is now automatically populated from the `Content-Type` request header in the INetwork (Selenium) capture strategy.
 - Conflict guard for `WithOutputFile()` + `StopAndSaveAsync(path)` — throws `InvalidOperationException` when attempting to pass a path to `StopAndSaveAsync` in streaming mode.
-- 8 new unit tests for MimeType extraction and conflict guard.
+- 23 new unit tests for browser auto-detection, MimeType extraction, and conflict guard.
 
 ## [0.1.3] - 2026-02-25
 
