@@ -26,6 +26,8 @@ public sealed class HarCaptureSession : IDisposable
     private readonly UrlPatternMatcher _urlMatcher;
     private readonly FileLogger? _logger;
     private readonly object _lock = new object();
+    private readonly string? _browserName;
+    private readonly string? _browserVersion;
     private INetworkCaptureStrategy? _strategy;
     private HarStreamWriter? _streamWriter;
     private Har _har = null!;
@@ -93,6 +95,20 @@ public sealed class HarCaptureSession : IDisposable
         _options = options ?? new CaptureOptions();
         _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
         _logger = FileLogger.Create(_options.LogFilePath);
+
+        // Extract browser info: override takes precedence over auto-detection
+        if (_options.BrowserName != null)
+        {
+            _browserName = _options.BrowserName;
+            _browserVersion = _options.BrowserVersion;
+        }
+        else
+        {
+            var (name, version) = BrowserCapabilityExtractor.Extract(driver);
+            _browserName = name;
+            _browserVersion = version;
+        }
+
         _strategy = StrategyFactory.Create(driver, _options, _logger);
     }
 
@@ -110,6 +126,12 @@ public sealed class HarCaptureSession : IDisposable
         _options = options ?? new CaptureOptions();
         _urlMatcher = new UrlPatternMatcher(_options.UrlIncludePatterns, _options.UrlExcludePatterns);
         _logger = FileLogger.Create(_options.LogFilePath);
+
+        if (_options.BrowserName != null)
+        {
+            _browserName = _options.BrowserName;
+            _browserVersion = _options.BrowserVersion;
+        }
     }
 
     /// <summary>
@@ -390,6 +412,17 @@ public sealed class HarCaptureSession : IDisposable
                 };
             }
 
+            // Create browser metadata if available
+            HarBrowser? browser = null;
+            if (_browserName != null)
+            {
+                browser = new HarBrowser
+                {
+                    Name = _browserName,
+                    Version = _browserVersion ?? ""
+                };
+            }
+
             // Initialize HAR
             _har = new Har
             {
@@ -401,6 +434,7 @@ public sealed class HarCaptureSession : IDisposable
                         Name = _options.CreatorName,
                         Version = typeof(HarCaptureSession).Assembly.GetName().Version?.ToString() ?? "1.0.0"
                     },
+                    Browser = browser,
                     Pages = pages,
                     Entries = new List<HarEntry>()
                 }

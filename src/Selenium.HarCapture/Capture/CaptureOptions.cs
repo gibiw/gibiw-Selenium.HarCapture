@@ -140,6 +140,20 @@ public sealed class CaptureOptions
     public string? LogFilePath { get; set; }
 
     /// <summary>
+    /// Gets or sets the browser name to use in HAR metadata.
+    /// When set, overrides auto-detected browser name from WebDriver capabilities.
+    /// Default is null (auto-detect from driver).
+    /// </summary>
+    public string? BrowserName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the browser version to use in HAR metadata.
+    /// When set, overrides auto-detected browser version from WebDriver capabilities.
+    /// Default is null (auto-detect from driver).
+    /// </summary>
+    public string? BrowserVersion { get; set; }
+
+    /// <summary>
     /// Sets the output file path for streaming HAR capture.
     /// Entries will be written incrementally to the file, keeping it always valid.
     /// </summary>
@@ -169,6 +183,19 @@ public sealed class CaptureOptions
     public CaptureOptions WithLogFile(string path)
     {
         LogFilePath = path;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the browser name and version to use in HAR metadata, overriding auto-detection.
+    /// </summary>
+    /// <param name="name">The browser name (e.g., "Chrome", "Firefox").</param>
+    /// <param name="version">The browser version string.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithBrowser(string name, string version)
+    {
+        BrowserName = name;
+        BrowserVersion = version;
         return this;
     }
 }

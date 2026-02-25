@@ -378,8 +378,18 @@ public sealed class HarCaptureSessionTests
         var capabilities = new MockCapabilities();
         capabilities.Set("browserName", "chrome");
         capabilities.Set("browserVersion", "142.0");
-        var driver = new FakeCapabilitiesDevToolsDriver { Capabilities = capabilities };
-        var session = new HarCaptureSession(driver);
+        var driver = new MockCapabilitiesDriver { Capabilities = capabilities };
+        var strategy = new MockCaptureStrategy();
+
+        // Simulate what HarCaptureSession(IWebDriver) constructor does:
+        // Extract browser info from driver, then create session with strategy
+        var options = new CaptureOptions();
+        (string? name, string? version) = Selenium.HarCapture.Capture.Internal.BrowserCapabilityExtractor.Extract(driver);
+        if (name != null)
+        {
+            options = options.WithBrowser(name, version ?? "");
+        }
+        var session = new HarCaptureSession(strategy, options);
 
         // Act
         session.Start();
@@ -398,9 +408,12 @@ public sealed class HarCaptureSessionTests
         var capabilities = new MockCapabilities();
         capabilities.Set("browserName", "chrome");
         capabilities.Set("browserVersion", "142.0");
-        var driver = new FakeCapabilitiesDevToolsDriver { Capabilities = capabilities };
+        var driver = new MockCapabilitiesDriver { Capabilities = capabilities };
+        var strategy = new MockCaptureStrategy();
+
+        // Options with override - override should take precedence
         var options = new CaptureOptions().WithBrowser("Custom", "9.9");
-        var session = new HarCaptureSession(driver, options);
+        var session = new HarCaptureSession(strategy, options);
 
         // Act
         session.Start();
@@ -425,6 +438,65 @@ public sealed class HarCaptureSessionTests
 
         // Assert
         har.Log.Browser.Should().BeNull();
+    }
+
+    private class MockCapabilitiesDriver : IWebDriver, IHasCapabilities
+    {
+        public ICapabilities Capabilities { get; set; } = null!;
+
+        public string Url
+        {
+            get => throw new NotImplementedException();
+            set => throw new NotImplementedException();
+        }
+
+        public string Title => throw new NotImplementedException();
+
+        public string PageSource => throw new NotImplementedException();
+
+        public string CurrentWindowHandle => throw new NotImplementedException();
+
+        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
+
+        public void Close()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Quit()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IOptions Manage()
+        {
+            throw new NotImplementedException();
+        }
+
+        public INavigation Navigate()
+        {
+            throw new NotImplementedException();
+        }
+
+        public ITargetLocator SwitchTo()
+        {
+            throw new NotImplementedException();
+        }
+
+        public IWebElement FindElement(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ReadOnlyCollection<IWebElement> FindElements(By by)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Dispose()
+        {
+            // No-op
+        }
     }
 
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
@@ -568,91 +640,6 @@ public sealed class HarCaptureSessionTests
     /// </summary>
     private class FakeDevToolsDriver : IWebDriver, IDevTools
     {
-        public string Url
-        {
-            get => throw new NotImplementedException();
-            set => throw new NotImplementedException();
-        }
-
-        public string Title => throw new NotImplementedException();
-
-        public string PageSource => throw new NotImplementedException();
-
-        public string CurrentWindowHandle => throw new NotImplementedException();
-
-        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
-
-        public bool HasActiveDevToolsSession => false;
-
-        public void Close()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Quit()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IOptions Manage()
-        {
-            throw new NotImplementedException();
-        }
-
-        public INavigation Navigate()
-        {
-            throw new NotImplementedException();
-        }
-
-        public ITargetLocator SwitchTo()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IWebElement FindElement(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ReadOnlyCollection<IWebElement> FindElements(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            // No-op
-        }
-
-        public DevToolsSession GetDevToolsSession()
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public DevToolsSession GetDevToolsSession(int devToolsProtocolVersion)
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public DevToolsSession GetDevToolsSession(DevToolsOptions options)
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public void CloseDevToolsSession()
-        {
-            // No-op
-        }
-    }
-
-    /// <summary>
-    /// Fake driver that implements IDevTools and IHasCapabilities for testing browser auto-detection.
-    /// Used to test browser info extraction from capabilities.
-    /// </summary>
-    private class FakeCapabilitiesDevToolsDriver : IWebDriver, IDevTools, IHasCapabilities
-    {
-        public ICapabilities Capabilities { get; set; } = null!;
-
         public string Url
         {
             get => throw new NotImplementedException();
