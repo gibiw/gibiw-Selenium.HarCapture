@@ -65,6 +65,12 @@ public enum CaptureType
     ConnectionInfo = 1 << 9, // 512
 
     /// <summary>
+    /// Capture WebSocket frames (sent and received messages after the handshake).
+    /// Requires CDP strategy (Chrome/Edge). INetwork strategy silently ignores this flag.
+    /// </summary>
+    WebSocket = 1 << 10, // 1024
+
+    /// <summary>
     /// Convenience combination: Capture all headers and cookies for both requests and responses.
     /// Equivalent to RequestHeaders | RequestCookies | ResponseHeaders | ResponseCookies.
     /// </summary>
@@ -77,10 +83,10 @@ public enum CaptureType
     AllText = HeadersAndCookies | RequestContent | ResponseContent | Timings,
 
     /// <summary>
-    /// Convenience combination: Capture everything including binary content, timings, and connection info.
+    /// Convenience combination: Capture everything including binary content, timings, connection info, and WebSocket frames.
     /// Equivalent to all individual flags combined.
     /// </summary>
     All = RequestHeaders | RequestCookies | RequestContent | RequestBinaryContent |
           ResponseHeaders | ResponseCookies | ResponseContent | ResponseBinaryContent |
-          Timings | ConnectionInfo
+          Timings | ConnectionInfo | WebSocket
 }

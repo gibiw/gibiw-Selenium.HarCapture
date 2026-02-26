@@ -30,6 +30,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     private readonly ConcurrentDictionary<string, ResponseBodyInfo> _responseBodies = new();
     private ConcurrentBag<Task> _pendingBodyTasks = new();
     private UrlPatternMatcher? _urlMatcher;
+    private WebSocketFrameAccumulator? _wsAccumulator;
     private bool _disposed;
 
     /// <summary>
@@ -83,6 +84,19 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _adapter.LoadingFinished += OnLoadingFinished;
         _adapter.LoadingFailed += OnLoadingFailed;
 
+        // Subscribe to WebSocket events if WebSocket capture is enabled
+        if ((options.CaptureTypes & CaptureType.WebSocket) != 0)
+        {
+            _wsAccumulator = new WebSocketFrameAccumulator();
+            _adapter.WebSocketCreated += OnWebSocketCreated;
+            _adapter.WebSocketWillSendHandshakeRequest += OnWebSocketWillSendHandshakeRequest;
+            _adapter.WebSocketHandshakeResponseReceived += OnWebSocketHandshakeResponseReceived;
+            _adapter.WebSocketFrameSent += OnWebSocketFrameSent;
+            _adapter.WebSocketFrameReceived += OnWebSocketFrameReceived;
+            _adapter.WebSocketClosed += OnWebSocketClosed;
+            _logger?.Log("CDP", "WebSocket capture enabled");
+        }
+
         // Enable Network domain
         await _adapter.EnableNetworkAsync().ConfigureAwait(false);
         _logger?.Log("CDP", "Network domain enabled, capture ready");
@@ -101,6 +115,17 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             _adapter.ResponseReceived -= OnResponseReceived;
             _adapter.LoadingFinished -= OnLoadingFinished;
             _adapter.LoadingFailed -= OnLoadingFailed;
+
+            // Unsubscribe from WebSocket events
+            if (_wsAccumulator != null)
+            {
+                _adapter.WebSocketCreated -= OnWebSocketCreated;
+                _adapter.WebSocketWillSendHandshakeRequest -= OnWebSocketWillSendHandshakeRequest;
+                _adapter.WebSocketHandshakeResponseReceived -= OnWebSocketHandshakeResponseReceived;
+                _adapter.WebSocketFrameSent -= OnWebSocketFrameSent;
+                _adapter.WebSocketFrameReceived -= OnWebSocketFrameReceived;
+                _adapter.WebSocketClosed -= OnWebSocketClosed;
+            }
 
             // Wait for all in-flight body retrievals to complete (with timeout)
             var tasks = _pendingBodyTasks.ToArray();
@@ -140,9 +165,24 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             }
         }
 
+        // Flush all unclosed WebSocket connections
+        if (_wsAccumulator != null)
+        {
+            var activeWsIds = _wsAccumulator.GetActiveRequestIds();
+            if (activeWsIds.Count > 0)
+            {
+                _logger?.Log("CDP", $"StopAsync: flushing {activeWsIds.Count} unclosed WebSocket connections");
+                foreach (var wsId in activeWsIds)
+                {
+                    FlushWebSocket(wsId);
+                }
+            }
+        }
+
         _pendingBodyTasks = new ConcurrentBag<Task>();
         _correlator.Clear();
         _responseBodies.Clear();
+        _wsAccumulator?.Clear();
     }
 
     /// <summary>
@@ -154,6 +194,13 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         try
         {
             _logger?.Log("CDP", $"RequestWillBeSent: id={e.RequestId}, {e.Request.Method} {e.Request.Url}");
+
+            // Suppress normal HTTP flow for WebSocket requests
+            if (_wsAccumulator != null && _wsAccumulator.IsWebSocket(e.RequestId))
+            {
+                _logger?.Log("CDP", $"Request suppressed (WebSocket): id={e.RequestId}");
+                return;
+            }
 
             // URL filtering
             if (_urlMatcher != null && !_urlMatcher.ShouldCapture(e.Request.Url))
@@ -195,6 +242,13 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         try
         {
             _logger?.Log("CDP", $"ResponseReceived: id={e.RequestId}, status={e.Response.Status}, mime={e.Response.MimeType}");
+
+            // Suppress normal HTTP flow for WebSocket requests
+            if (_wsAccumulator != null && _wsAccumulator.IsWebSocket(e.RequestId))
+            {
+                _logger?.Log("CDP", $"Response suppressed (WebSocket): id={e.RequestId}");
+                return;
+            }
 
             // Build HAR response
             var harResponse = BuildHarResponse(e.Response);
@@ -287,6 +341,106 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         // Remove pending entry from correlator to free memory.
         // In the future, we could optionally create error entries.
         // For now, silently drop failed requests.
+    }
+
+    private void OnWebSocketCreated(CdpWebSocketCreatedData e)
+    {
+        try
+        {
+            _logger?.Log("CDP", $"WebSocketCreated: id={e.RequestId}, url={e.Url}");
+            _wsAccumulator?.OnCreated(e.RequestId, e.Url);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketCreated: {ex.Message}");
+        }
+    }
+
+    private void OnWebSocketWillSendHandshakeRequest(CdpWebSocketHandshakeRequestData e)
+    {
+        try
+        {
+            _logger?.Log("CDP", $"WebSocketHandshakeRequest: id={e.RequestId}");
+            _wsAccumulator?.OnHandshakeRequest(e.RequestId, e.Timestamp, e.WallTime, e.Headers);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketWillSendHandshakeRequest: {ex.Message}");
+        }
+    }
+
+    private void OnWebSocketHandshakeResponseReceived(CdpWebSocketHandshakeResponseData e)
+    {
+        try
+        {
+            _logger?.Log("CDP", $"WebSocketHandshakeResponse: id={e.RequestId}, status={e.Status}");
+            _wsAccumulator?.OnHandshakeResponse(e.RequestId, e.Timestamp, e.Status, e.StatusText, e.Headers);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketHandshakeResponseReceived: {ex.Message}");
+        }
+    }
+
+    private void OnWebSocketFrameSent(CdpWebSocketFrameData e)
+    {
+        try
+        {
+            _wsAccumulator?.AddFrame(e.RequestId, "send", e.Timestamp, e.Opcode, e.PayloadData);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketFrameSent: {ex.Message}");
+        }
+    }
+
+    private void OnWebSocketFrameReceived(CdpWebSocketFrameData e)
+    {
+        try
+        {
+            _wsAccumulator?.AddFrame(e.RequestId, "receive", e.Timestamp, e.Opcode, e.PayloadData);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketFrameReceived: {ex.Message}");
+        }
+    }
+
+    private void OnWebSocketClosed(CdpWebSocketClosedData e)
+    {
+        try
+        {
+            _logger?.Log("CDP", $"WebSocketClosed: id={e.RequestId}");
+            FlushWebSocket(e.RequestId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Log("CDP", $"Error in OnWebSocketClosed: {ex.Message}");
+        }
+    }
+
+    private void FlushWebSocket(string requestId)
+    {
+        var result = _wsAccumulator?.Flush(requestId);
+        if (result == null)
+            return;
+
+        var (baseEntry, frames) = result.Value;
+
+        // Create final entry with WebSocketMessages attached
+        var finalEntry = new HarEntry
+        {
+            StartedDateTime = baseEntry.StartedDateTime,
+            Time = baseEntry.Time,
+            Request = baseEntry.Request,
+            Response = baseEntry.Response,
+            Cache = baseEntry.Cache,
+            Timings = baseEntry.Timings,
+            WebSocketMessages = frames
+        };
+
+        _logger?.Log("CDP", $"WebSocket entry completed: id={requestId}, frames={frames.Count}");
+        EntryCompleted?.Invoke(finalEntry, requestId);
     }
 
     /// <summary>
@@ -648,6 +802,17 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             _adapter.LoadingFinished -= OnLoadingFinished;
             _adapter.LoadingFailed -= OnLoadingFailed;
 
+            // Unsubscribe from WebSocket events
+            if (_wsAccumulator != null)
+            {
+                _adapter.WebSocketCreated -= OnWebSocketCreated;
+                _adapter.WebSocketWillSendHandshakeRequest -= OnWebSocketWillSendHandshakeRequest;
+                _adapter.WebSocketHandshakeResponseReceived -= OnWebSocketHandshakeResponseReceived;
+                _adapter.WebSocketFrameSent -= OnWebSocketFrameSent;
+                _adapter.WebSocketFrameReceived -= OnWebSocketFrameReceived;
+                _adapter.WebSocketClosed -= OnWebSocketClosed;
+            }
+
             // Try to disable Network domain with timeout to prevent hanging
             try
             {
@@ -670,6 +835,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _pendingBodyTasks = new ConcurrentBag<Task>();
         _correlator.Clear();
         _responseBodies.Clear();
+        _wsAccumulator?.Clear();
     }
 
     /// <summary>

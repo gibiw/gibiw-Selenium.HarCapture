@@ -49,6 +49,58 @@ internal sealed class CdpResponseInfo
 }
 
 /// <summary>
+/// Version-independent DTO for CDP Network.webSocketCreated event data.
+/// </summary>
+internal sealed class CdpWebSocketCreatedData
+{
+    public string RequestId { get; init; } = null!;
+    public string Url { get; init; } = null!;
+}
+
+/// <summary>
+/// Version-independent DTO for CDP Network.webSocketWillSendHandshakeRequest event data.
+/// </summary>
+internal sealed class CdpWebSocketHandshakeRequestData
+{
+    public string RequestId { get; init; } = null!;
+    public double Timestamp { get; init; }
+    public double WallTime { get; init; }
+    public IDictionary<string, string>? Headers { get; init; }
+}
+
+/// <summary>
+/// Version-independent DTO for CDP Network.webSocketHandshakeResponseReceived event data.
+/// </summary>
+internal sealed class CdpWebSocketHandshakeResponseData
+{
+    public string RequestId { get; init; } = null!;
+    public double Timestamp { get; init; }
+    public long Status { get; init; }
+    public string? StatusText { get; init; }
+    public IDictionary<string, string>? Headers { get; init; }
+}
+
+/// <summary>
+/// Version-independent DTO for CDP Network.webSocketFrameSent / webSocketFrameReceived event data.
+/// </summary>
+internal sealed class CdpWebSocketFrameData
+{
+    public string RequestId { get; init; } = null!;
+    public double Timestamp { get; init; }
+    public int Opcode { get; init; }
+    public string PayloadData { get; init; } = null!;
+}
+
+/// <summary>
+/// Version-independent DTO for CDP Network.webSocketClosed event data.
+/// </summary>
+internal sealed class CdpWebSocketClosedData
+{
+    public string RequestId { get; init; } = null!;
+    public double Timestamp { get; init; }
+}
+
+/// <summary>
 /// Version-independent DTO mirroring CDP Network.ResourceTiming.
 /// </summary>
 internal sealed class CdpTimingInfo

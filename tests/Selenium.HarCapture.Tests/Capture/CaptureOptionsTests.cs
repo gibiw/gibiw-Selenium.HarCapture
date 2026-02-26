@@ -203,4 +203,33 @@ public sealed class CaptureOptionsTests
         options.EnableCompression.Should().BeTrue();
         result.Should().BeSameAs(options);
     }
+
+    [Fact]
+    public void FluentApi_WithWebSocketCapture_SetsFlag()
+    {
+        // Arrange
+        var options = new CaptureOptions();
+
+        // Act
+        var result = options.WithWebSocketCapture();
+
+        // Assert
+        options.CaptureTypes.HasFlag(CaptureType.WebSocket).Should().BeTrue();
+        result.Should().BeSameAs(options);
+    }
+
+    [Fact]
+    public void WithWebSocketCapture_PreservesExistingFlags()
+    {
+        // Arrange
+        var options = new CaptureOptions()
+            .WithCaptureTypes(CaptureType.AllText);
+
+        // Act
+        options.WithWebSocketCapture();
+
+        // Assert
+        options.CaptureTypes.HasFlag(CaptureType.AllText).Should().BeTrue();
+        options.CaptureTypes.HasFlag(CaptureType.WebSocket).Should().BeTrue();
+    }
 }

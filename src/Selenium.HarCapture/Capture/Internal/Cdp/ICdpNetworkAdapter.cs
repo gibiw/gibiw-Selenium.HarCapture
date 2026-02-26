@@ -14,6 +14,13 @@ internal interface ICdpNetworkAdapter : IDisposable
     event Action<string>? LoadingFinished;
     event Action<string>? LoadingFailed;
 
+    event Action<CdpWebSocketCreatedData>? WebSocketCreated;
+    event Action<CdpWebSocketHandshakeRequestData>? WebSocketWillSendHandshakeRequest;
+    event Action<CdpWebSocketHandshakeResponseData>? WebSocketHandshakeResponseReceived;
+    event Action<CdpWebSocketFrameData>? WebSocketFrameSent;
+    event Action<CdpWebSocketFrameData>? WebSocketFrameReceived;
+    event Action<CdpWebSocketClosedData>? WebSocketClosed;
+
     Task EnableNetworkAsync();
     Task DisableNetworkAsync();
     Task<(string? body, bool base64Encoded)> GetResponseBodyAsync(string requestId);

@@ -34,12 +34,34 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     private readonly EventInfo _loadingFinishedEvent;
     private readonly EventInfo _loadingFailedEvent;
 
+    // WebSocket events (may be null if not supported by CDP version)
+    private readonly Delegate? _wsCreatedHandler;
+    private readonly Delegate? _wsHandshakeRequestHandler;
+    private readonly Delegate? _wsHandshakeResponseHandler;
+    private readonly Delegate? _wsFrameSentHandler;
+    private readonly Delegate? _wsFrameReceivedHandler;
+    private readonly Delegate? _wsClosedHandler;
+
+    private readonly EventInfo? _wsCreatedEvent;
+    private readonly EventInfo? _wsHandshakeRequestEvent;
+    private readonly EventInfo? _wsHandshakeResponseEvent;
+    private readonly EventInfo? _wsFrameSentEvent;
+    private readonly EventInfo? _wsFrameReceivedEvent;
+    private readonly EventInfo? _wsClosedEvent;
+
     private bool _disposed;
 
     public event Action<CdpRequestWillBeSentData>? RequestWillBeSent;
     public event Action<CdpResponseReceivedData>? ResponseReceived;
     public event Action<string>? LoadingFinished;
     public event Action<string>? LoadingFailed;
+
+    public event Action<CdpWebSocketCreatedData>? WebSocketCreated;
+    public event Action<CdpWebSocketHandshakeRequestData>? WebSocketWillSendHandshakeRequest;
+    public event Action<CdpWebSocketHandshakeResponseData>? WebSocketHandshakeResponseReceived;
+    public event Action<CdpWebSocketFrameData>? WebSocketFrameSent;
+    public event Action<CdpWebSocketFrameData>? WebSocketFrameReceived;
+    public event Action<CdpWebSocketClosedData>? WebSocketClosed;
 
     internal ReflectiveCdpNetworkAdapter(DevToolsSession session, Type domainsType)
     {
@@ -83,6 +105,34 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
         _responseReceivedHandler = SubscribeEvent(_responseReceivedEvent, OnResponseReceived);
         _loadingFinishedHandler = SubscribeEvent(_loadingFinishedEvent, OnLoadingFinished);
         _loadingFailedHandler = SubscribeEvent(_loadingFailedEvent, OnLoadingFailed);
+
+        // Subscribe to WebSocket events (best-effort — may be missing on older CDP versions)
+        try
+        {
+            _wsCreatedEvent = networkType.GetEvent("WebSocketCreated");
+            _wsHandshakeRequestEvent = networkType.GetEvent("WebSocketWillSendHandshakeRequest");
+            _wsHandshakeResponseEvent = networkType.GetEvent("WebSocketHandshakeResponseReceived");
+            _wsFrameSentEvent = networkType.GetEvent("WebSocketFrameSent");
+            _wsFrameReceivedEvent = networkType.GetEvent("WebSocketFrameReceived");
+            _wsClosedEvent = networkType.GetEvent("WebSocketClosed");
+
+            if (_wsCreatedEvent != null)
+                _wsCreatedHandler = SubscribeEvent(_wsCreatedEvent, OnWebSocketCreated);
+            if (_wsHandshakeRequestEvent != null)
+                _wsHandshakeRequestHandler = SubscribeEvent(_wsHandshakeRequestEvent, OnWebSocketHandshakeRequest);
+            if (_wsHandshakeResponseEvent != null)
+                _wsHandshakeResponseHandler = SubscribeEvent(_wsHandshakeResponseEvent, OnWebSocketHandshakeResponse);
+            if (_wsFrameSentEvent != null)
+                _wsFrameSentHandler = SubscribeEvent(_wsFrameSentEvent, OnWebSocketFrameSent);
+            if (_wsFrameReceivedEvent != null)
+                _wsFrameReceivedHandler = SubscribeEvent(_wsFrameReceivedEvent, OnWebSocketFrameReceived);
+            if (_wsClosedEvent != null)
+                _wsClosedHandler = SubscribeEvent(_wsClosedEvent, OnWebSocketClosed);
+        }
+        catch
+        {
+            // WebSocket events not available on this CDP version — proceed without WS support
+        }
     }
 
     public Task EnableNetworkAsync()
@@ -152,6 +202,108 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     {
         var requestId = (string)eventArgs.GetType().GetProperty("RequestId")!.GetValue(eventArgs)!;
         LoadingFailed?.Invoke(requestId);
+    }
+
+    private void OnWebSocketCreated(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        WebSocketCreated?.Invoke(new CdpWebSocketCreatedData
+        {
+            RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
+            Url = (string?)type.GetProperty("Url")?.GetValue(eventArgs) ?? ""
+        });
+    }
+
+    private void OnWebSocketHandshakeRequest(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        var timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!;
+        var wallTime = type.GetProperty("WallTime")?.GetValue(eventArgs) is double wt ? wt : timestamp;
+
+        IDictionary<string, string>? headers = null;
+        var requestObj = type.GetProperty("Request")?.GetValue(eventArgs);
+        if (requestObj != null)
+        {
+            var headersObj = requestObj.GetType().GetProperty("Headers")?.GetValue(requestObj);
+            headers = CastHeaders(headersObj);
+        }
+
+        WebSocketWillSendHandshakeRequest?.Invoke(new CdpWebSocketHandshakeRequestData
+        {
+            RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
+            Timestamp = timestamp,
+            WallTime = wallTime,
+            Headers = headers
+        });
+    }
+
+    private void OnWebSocketHandshakeResponse(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        long status = 101;
+        string? statusText = "Switching Protocols";
+        IDictionary<string, string>? headers = null;
+
+        var responseObj = type.GetProperty("Response")?.GetValue(eventArgs);
+        if (responseObj != null)
+        {
+            var rType = responseObj.GetType();
+            if (rType.GetProperty("Status")?.GetValue(responseObj) is long s) status = s;
+            statusText = (string?)rType.GetProperty("StatusText")?.GetValue(responseObj) ?? statusText;
+            headers = CastHeaders(rType.GetProperty("Headers")?.GetValue(responseObj));
+        }
+
+        WebSocketHandshakeResponseReceived?.Invoke(new CdpWebSocketHandshakeResponseData
+        {
+            RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
+            Timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!,
+            Status = status,
+            StatusText = statusText,
+            Headers = headers
+        });
+    }
+
+    private void OnWebSocketFrameSent(object eventArgs)
+    {
+        WebSocketFrameSent?.Invoke(MapWebSocketFrame(eventArgs));
+    }
+
+    private void OnWebSocketFrameReceived(object eventArgs)
+    {
+        WebSocketFrameReceived?.Invoke(MapWebSocketFrame(eventArgs));
+    }
+
+    private static CdpWebSocketFrameData MapWebSocketFrame(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        var opcode = 1;
+        var payloadData = "";
+
+        var responseObj = type.GetProperty("Response")?.GetValue(eventArgs);
+        if (responseObj != null)
+        {
+            var rType = responseObj.GetType();
+            if (rType.GetProperty("Opcode")?.GetValue(responseObj) is int op) opcode = op;
+            payloadData = (string?)rType.GetProperty("PayloadData")?.GetValue(responseObj) ?? "";
+        }
+
+        return new CdpWebSocketFrameData
+        {
+            RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
+            Timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!,
+            Opcode = opcode,
+            PayloadData = payloadData
+        };
+    }
+
+    private void OnWebSocketClosed(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        WebSocketClosed?.Invoke(new CdpWebSocketClosedData
+        {
+            RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
+            Timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!
+        });
     }
 
     private static CdpRequestInfo MapRequest(object r)
@@ -254,5 +406,18 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
         _responseReceivedEvent.RemoveEventHandler(_network, _responseReceivedHandler);
         _loadingFinishedEvent.RemoveEventHandler(_network, _loadingFinishedHandler);
         _loadingFailedEvent.RemoveEventHandler(_network, _loadingFailedHandler);
+
+        if (_wsCreatedEvent != null && _wsCreatedHandler != null)
+            _wsCreatedEvent.RemoveEventHandler(_network, _wsCreatedHandler);
+        if (_wsHandshakeRequestEvent != null && _wsHandshakeRequestHandler != null)
+            _wsHandshakeRequestEvent.RemoveEventHandler(_network, _wsHandshakeRequestHandler);
+        if (_wsHandshakeResponseEvent != null && _wsHandshakeResponseHandler != null)
+            _wsHandshakeResponseEvent.RemoveEventHandler(_network, _wsHandshakeResponseHandler);
+        if (_wsFrameSentEvent != null && _wsFrameSentHandler != null)
+            _wsFrameSentEvent.RemoveEventHandler(_network, _wsFrameSentHandler);
+        if (_wsFrameReceivedEvent != null && _wsFrameReceivedHandler != null)
+            _wsFrameReceivedEvent.RemoveEventHandler(_network, _wsFrameReceivedHandler);
+        if (_wsClosedEvent != null && _wsClosedHandler != null)
+            _wsClosedEvent.RemoveEventHandler(_network, _wsClosedHandler);
     }
 }

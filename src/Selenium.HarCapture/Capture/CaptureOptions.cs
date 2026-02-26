@@ -208,6 +208,17 @@ public sealed class CaptureOptions
     }
 
     /// <summary>
+    /// Enables WebSocket frame capture by adding the <see cref="CaptureType.WebSocket"/> flag.
+    /// Requires CDP strategy (Chrome/Edge). INetwork strategy silently ignores this flag.
+    /// </summary>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithWebSocketCapture()
+    {
+        CaptureTypes |= CaptureType.WebSocket;
+        return this;
+    }
+
+    /// <summary>
     /// Enables gzip compression for the output file.
     /// In streaming mode, compression happens at finalization after all entries are written.
     /// The output file path will have .gz appended if it doesn't already end with .gz.

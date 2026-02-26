@@ -822,6 +822,248 @@ public sealed class HarSerializerTests
         }
     }
 
+    [Fact]
+    public async Task SaveAsync_CreatesDirectoryIfNotExists()
+    {
+        // Arrange
+        var har = CreateMinimalHar();
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "sub", "dir");
+        var filePath = Path.Combine(tempDir, "test.har");
+
+        try
+        {
+            // Act
+            await HarSerializer.SaveAsync(har, filePath);
+
+            // Assert
+            File.Exists(filePath).Should().BeTrue("file should be created in auto-created directory");
+        }
+        finally
+        {
+            // Clean up the top-level temp directory
+            var root = Path.Combine(Path.GetTempPath(), Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(filePath)!)!)!));
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Save_CreatesDirectoryIfNotExists()
+    {
+        // Arrange
+        var har = CreateMinimalHar();
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "sub", "dir");
+        var filePath = Path.Combine(tempDir, "test.har");
+
+        try
+        {
+            // Act
+            HarSerializer.Save(har, filePath);
+
+            // Assert
+            File.Exists(filePath).Should().BeTrue("file should be created in auto-created directory");
+        }
+        finally
+        {
+            var root = Path.Combine(Path.GetTempPath(), Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(filePath)!)!)!));
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    // WebSocket serialization tests
+
+    [Fact]
+    public void Serialize_EntryWithNullWebSocketMessages_OmitsField()
+    {
+        // Arrange
+        var har = new Har
+        {
+            Log = new HarLog
+            {
+                Version = "1.2",
+                Creator = new HarCreator { Name = "Test", Version = "1.0" },
+                Entries = new List<HarEntry>
+                {
+                    new HarEntry
+                    {
+                        StartedDateTime = DateTimeOffset.UtcNow,
+                        Time = 100,
+                        Request = new HarRequest
+                        {
+                            Method = "GET",
+                            Url = "https://example.com",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            QueryString = new List<HarQueryString>(),
+                            HeadersSize = -1,
+                            BodySize = 0
+                        },
+                        Response = new HarResponse
+                        {
+                            Status = 200,
+                            StatusText = "OK",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            Content = new HarContent { Size = 0, MimeType = "text/html" },
+                            RedirectURL = "",
+                            HeadersSize = -1,
+                            BodySize = -1
+                        },
+                        Cache = new HarCache(),
+                        Timings = new HarTimings { Send = 1, Wait = 50, Receive = 49 },
+                        WebSocketMessages = null
+                    }
+                }
+            }
+        };
+
+        // Act
+        var json = HarSerializer.Serialize(har, writeIndented: false);
+
+        // Assert
+        json.Should().NotContain("_webSocketMessages",
+            "null WebSocketMessages should be omitted from JSON");
+    }
+
+    [Fact]
+    public void Serialize_Deserialize_WebSocketMessages_RoundTrip()
+    {
+        // Arrange
+        var wsMessages = new List<HarWebSocketMessage>
+        {
+            new HarWebSocketMessage { Type = "send", Time = 1700000001.0, Opcode = 1, Data = "hello" },
+            new HarWebSocketMessage { Type = "receive", Time = 1700000002.0, Opcode = 1, Data = "world" },
+            new HarWebSocketMessage { Type = "send", Time = 1700000003.0, Opcode = 2, Data = "binary" }
+        };
+
+        var har = new Har
+        {
+            Log = new HarLog
+            {
+                Version = "1.2",
+                Creator = new HarCreator { Name = "Test", Version = "1.0" },
+                Entries = new List<HarEntry>
+                {
+                    new HarEntry
+                    {
+                        StartedDateTime = DateTimeOffset.UtcNow,
+                        Time = 100,
+                        Request = new HarRequest
+                        {
+                            Method = "GET",
+                            Url = "wss://example.com/socket",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            QueryString = new List<HarQueryString>(),
+                            HeadersSize = -1,
+                            BodySize = 0
+                        },
+                        Response = new HarResponse
+                        {
+                            Status = 101,
+                            StatusText = "Switching Protocols",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            Content = new HarContent { Size = 0, MimeType = "x-unknown" },
+                            RedirectURL = "",
+                            HeadersSize = -1,
+                            BodySize = 0
+                        },
+                        Cache = new HarCache(),
+                        Timings = new HarTimings { Send = 0, Wait = 0, Receive = 0 },
+                        WebSocketMessages = wsMessages
+                    }
+                }
+            }
+        };
+
+        // Act
+        var json = HarSerializer.Serialize(har);
+        var deserialized = HarSerializer.Deserialize(json);
+
+        // Assert
+        deserialized.Log.Entries[0].WebSocketMessages.Should().NotBeNull();
+        deserialized.Log.Entries[0].WebSocketMessages.Should().HaveCount(3);
+
+        var msgs = deserialized.Log.Entries[0].WebSocketMessages!;
+        msgs[0].Type.Should().Be("send");
+        msgs[0].Data.Should().Be("hello");
+        msgs[0].Opcode.Should().Be(1);
+        msgs[1].Type.Should().Be("receive");
+        msgs[2].Opcode.Should().Be(2);
+    }
+
+    [Fact]
+    public void Serialize_WebSocketMessages_UsesCorrectFieldName()
+    {
+        // Arrange — verify Chrome DevTools format compatibility
+        var har = new Har
+        {
+            Log = new HarLog
+            {
+                Version = "1.2",
+                Creator = new HarCreator { Name = "Test", Version = "1.0" },
+                Entries = new List<HarEntry>
+                {
+                    new HarEntry
+                    {
+                        StartedDateTime = DateTimeOffset.UtcNow,
+                        Time = 0,
+                        Request = new HarRequest
+                        {
+                            Method = "GET",
+                            Url = "wss://example.com",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            QueryString = new List<HarQueryString>(),
+                            HeadersSize = -1,
+                            BodySize = 0
+                        },
+                        Response = new HarResponse
+                        {
+                            Status = 101,
+                            StatusText = "Switching Protocols",
+                            HttpVersion = "HTTP/1.1",
+                            Cookies = new List<HarCookie>(),
+                            Headers = new List<HarHeader>(),
+                            Content = new HarContent { Size = 0, MimeType = "x-unknown" },
+                            RedirectURL = "",
+                            HeadersSize = -1,
+                            BodySize = 0
+                        },
+                        Cache = new HarCache(),
+                        Timings = new HarTimings { Send = 0, Wait = 0, Receive = 0 },
+                        WebSocketMessages = new List<HarWebSocketMessage>
+                        {
+                            new HarWebSocketMessage { Type = "send", Time = 1.0, Opcode = 1, Data = "test" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Act
+        var json = HarSerializer.Serialize(har, writeIndented: false);
+
+        // Assert — Chrome DevTools uses _webSocketMessages with "type" values "send"/"receive"
+        json.Should().Contain("\"_webSocketMessages\"",
+            "field name should match Chrome DevTools format");
+        json.Should().Contain("\"type\":\"send\"",
+            "type value should be 'send' or 'receive' per Chrome format");
+        json.Should().Contain("\"opcode\":1",
+            "opcode should be present per Chrome format");
+    }
+
     // Helper methods
 
     private static Har CreateMinimalHar()

@@ -17,6 +17,16 @@ public sealed class CaptureTypeTests
     }
 
     [Fact]
+    public void WebSocket_HasValue_1024()
+    {
+        // Arrange & Act
+        var value = (int)CaptureType.WebSocket;
+
+        // Assert
+        value.Should().Be(1024);
+    }
+
+    [Fact]
     public void IndividualFlags_ArePowersOfTwo()
     {
         // Arrange
@@ -31,7 +41,8 @@ public sealed class CaptureTypeTests
             CaptureType.ResponseContent,     // 64
             CaptureType.ResponseBinaryContent,// 128
             CaptureType.Timings,             // 256
-            CaptureType.ConnectionInfo       // 512
+            CaptureType.ConnectionInfo,      // 512
+            CaptureType.WebSocket            // 1024
         };
 
         // Act & Assert
@@ -63,9 +74,10 @@ public sealed class CaptureTypeTests
         allText.HasFlag(CaptureType.ResponseContent).Should().BeTrue();
         allText.HasFlag(CaptureType.Timings).Should().BeTrue();
 
-        // AllText excludes binary content
+        // AllText excludes binary content and WebSocket
         allText.HasFlag(CaptureType.RequestBinaryContent).Should().BeFalse();
         allText.HasFlag(CaptureType.ResponseBinaryContent).Should().BeFalse();
+        allText.HasFlag(CaptureType.WebSocket).Should().BeFalse();
     }
 
     [Fact]
@@ -106,6 +118,7 @@ public sealed class CaptureTypeTests
         all.HasFlag(CaptureType.ResponseBinaryContent).Should().BeTrue();
         all.HasFlag(CaptureType.Timings).Should().BeTrue();
         all.HasFlag(CaptureType.ConnectionInfo).Should().BeTrue();
+        all.HasFlag(CaptureType.WebSocket).Should().BeTrue();
     }
 
     [Fact]
