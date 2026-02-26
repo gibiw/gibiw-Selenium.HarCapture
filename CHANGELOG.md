@@ -2,17 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0] - 2026-02-25
+## [0.2.0] - 2026-02-26
 
 ### Added
 
+- **WebSocket capture support** — captures WebSocket frames (sent/received) via CDP events and stores them in the Chrome DevTools `_webSocketMessages` HAR extension field for compatibility with Chrome HAR viewers.
+- `HarWebSocketMessage` model with `Type` ("send"/"receive"), `Time` (epoch seconds), `Opcode` (1=text, 2=binary), and `Data` properties.
+- `HarEntry.WebSocketMessages` property (omitted from JSON when null).
+- `CaptureType.WebSocket` flag (`1 << 10`, included in `All`, excluded from `AllText`).
+- `CaptureOptions.WithWebSocketCapture()` fluent method.
+- `WebSocketFrameAccumulator` — thread-safe deferred-entry accumulator that holds WS connections until close/stop, then emits complete entries with all frames attached.
+- CDP WebSocket event handling in both `RawCdpNetworkAdapter` and `ReflectiveCdpNetworkAdapter` (graceful fallback if events missing on older CDP versions).
+- 8 unit tests for `WebSocketFrameAccumulator` (including concurrency and time conversion).
+- 3 serialization tests for `_webSocketMessages` (null omission, round-trip, Chrome format compatibility).
+- Updated `CaptureTypeTests` and `CaptureOptionsTests` for WebSocket flag.
+- **Gzip compression for HAR files** — `HarSerializer.SaveAsync()`/`Save()` and `LoadAsync()`/`Load()` auto-detect `.gz` extension and transparently compress/decompress via `GZipStream`.
+- **Gzip compression in streaming mode** — `CaptureOptions.WithCompression()` enables post-finalization gzip compression; after the stream writer completes, the HAR file is compressed to `.gz` and the original is deleted.
+- `CaptureOptions.EnableCompression` property and `WithCompression()` fluent method.
+- **Async channel-based streaming writer** — `HarStreamWriter` replaced lock-based synchronous writes with `Channel<WriteOperation>` producer-consumer pattern for non-blocking `WriteEntry`/`AddPage` calls and background drain.
+- `IAsyncDisposable` support across the full disposal chain: `HarCapture` → `HarCaptureSession` → `HarStreamWriter`. Using `await using` ensures complete channel drain before resource cleanup.
+- **Automatic directory creation** — `HarSerializer.SaveAsync()` and `HarSerializer.Save()` now automatically create intermediate directories if they don't exist, preventing `DirectoryNotFoundException`.
 - **Browser auto-detection** — `HarBrowser.Name` and `HarBrowser.Version` are automatically populated from WebDriver capabilities (`IHasCapabilities`) when available.
 - `BrowserCapabilityExtractor` — internal helper that extracts and normalizes browser name/version from W3C standard capability keys.
 - Browser name normalization for standard browsers (chrome → Chrome, MicrosoftEdge → Microsoft Edge, firefox → Firefox, etc.).
 - `CaptureOptions.WithBrowser(name, version)` fluent method for manual browser override (takes precedence over auto-detection).
 - **Request MimeType extraction** — `HarPostData.MimeType` is now automatically populated from the `Content-Type` request header in the INetwork (Selenium) capture strategy.
 - Conflict guard for `WithOutputFile()` + `StopAndSaveAsync(path)` — throws `InvalidOperationException` when attempting to pass a path to `StopAndSaveAsync` in streaming mode.
-- 23 new unit tests for browser auto-detection, MimeType extraction, and conflict guard.
+
+### Changed
+
+- `HarStreamWriter` internals rewritten from lock-based to channel-based async producer-consumer (`System.Threading.Channels` 8.0.0 dependency added).
+- `HarCaptureSession` and `HarCapture` now implement `IAsyncDisposable` with synchronous `Dispose` preserved as fallback.
 
 ## [0.1.3] - 2026-02-25
 

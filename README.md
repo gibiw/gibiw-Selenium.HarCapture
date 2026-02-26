@@ -17,13 +17,15 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **URL filtering** via glob patterns (include/exclude)
 - **Multi-page capture** support
 - **Response body size limiting** to control memory usage
-- **Streaming capture to file** with O(1) memory — always-valid HAR, crash-safe
+- **Streaming capture to file** with O(1) memory — async channel-based writer, always-valid HAR, crash-safe
+- **WebSocket capture** — captures WS frames via CDP `_webSocketMessages` extension (Chrome DevTools HAR compatible)
+- **Gzip compression** — automatic `.gz` detection in `HarSerializer`, and `WithCompression()` for streaming mode
 - **File-based diagnostic logging** via `WithLogFile()`
 - **Browser auto-detection** from WebDriver capabilities with manual override
 - **Fluent configuration API**
 - **One-liner capture** via extension methods
-- **Serialization** to/from JSON files
-- **Dual disposal** pattern (IDisposable + IAsyncDisposable)
+- **Serialization** to/from JSON and `.gz` files with auto directory creation
+- **Dual disposal** pattern (IDisposable + IAsyncDisposable) with full async channel drain
 
 ## Installation
 
@@ -120,6 +122,8 @@ var options = new CaptureOptions()
     .WithCreatorName("MyTestSuite")
     .WithBrowser("Chrome", "131.0.6778.86")   // manual browser override (auto-detected by default)
     .WithOutputFile("capture.har")             // streaming mode (O(1) memory)
+    .WithWebSocketCapture()                    // capture WebSocket frames (CDP only)
+    .WithCompression()                         // gzip compress on finalization (.har → .har.gz)
     .WithLogFile("capture.log")                // diagnostic logging
     .ForceSeleniumNetwork();                   // force INetwork API
 ```
@@ -139,9 +143,10 @@ var options = new CaptureOptions()
 | `ResponseBinaryContent` | Response body (binary) |
 | `Timings` | Detailed timing breakdown (send/wait/receive/dns/connect/ssl) |
 | `ConnectionInfo` | Server IP address, connection ID |
+| `WebSocket` | WebSocket frames (CDP only, opt-in) |
 | `HeadersAndCookies` | All headers + cookies |
 | `AllText` | Headers, cookies, text content, timings **(default)** |
-| `All` | Everything including binary content |
+| `All` | Everything including binary content and WebSocket |
 
 #### URL Filtering
 
@@ -179,6 +184,7 @@ var options = new CaptureOptions().ForceSeleniumNetwork();
 |---|---|---|
 | Detailed timings (dns, connect, ssl, send, wait, receive) | Yes | No (basic send/wait/receive only) |
 | Response body capture | Yes | Yes |
+| WebSocket frame capture | Yes | No |
 | Cross-browser support | Chrome only | All browsers |
 | Requires specific Chrome version match | Yes | No |
 
@@ -207,15 +213,16 @@ using var capture = new HarCapture(driver, options);
 
 ### Streaming Capture to File
 
-For large captures or memory-constrained environments, use streaming mode. Entries are written directly to the file as they arrive — O(1) memory, and the file is always a valid HAR (crash-safe).
+For large captures or memory-constrained environments, use streaming mode. Entries are written via an async channel-based producer-consumer to the file as they arrive — O(1) memory, and the file is always a valid HAR (crash-safe).
 
 ```csharp
 var options = new CaptureOptions()
     .WithOutputFile(@"C:\Logs\capture.har")    // enables streaming mode
+    .WithCompression()                          // optional: gzip on finalization → .har.gz
     .WithLogFile(@"C:\Logs\capture.log")        // optional diagnostics
     .WithMaxResponseBodySize(5_000_000);
 
-using var capture = new HarCapture(driver, options);
+await using var capture = new HarCapture(driver, options);
 capture.Start("page1", "Home");
 
 driver.Navigate().GoToUrl("https://example.com");
@@ -225,7 +232,10 @@ capture.NewPage("page2", "Dashboard");
 driver.Navigate().GoToUrl("https://example.com/dashboard");
 
 capture.StopAndSave(); // completes file, O(1) memory
+// with WithCompression(): capture.har is compressed to capture.har.gz
 ```
+
+**Note**: Both streaming mode (`WithOutputFile`) and the serialization methods (`HarSerializer.SaveAsync`/`Save`) automatically create any intermediate directories in the file path if they don't exist.
 
 | | In-memory (default) | Streaming (`WithOutputFile`) |
 |---|---|---|
@@ -275,11 +285,17 @@ using Selenium.HarCapture.Serialization;
 // Save to file (indented JSON by default)
 await HarSerializer.SaveAsync(har, "output.har");
 
+// Save to nested directories (auto-created if they don't exist)
+await HarSerializer.SaveAsync(har, @"C:\Logs\2024\January\capture.har");
+
 // Save compact JSON
 await HarSerializer.SaveAsync(har, "output.har", writeIndented: false);
 
-// Load from file
-var loaded = await HarSerializer.LoadAsync("output.har");
+// Save as gzip — auto-detected by .gz extension
+await HarSerializer.SaveAsync(har, "output.har.gz");
+
+// Load from file (gzip auto-detected by .gz extension)
+var loaded = await HarSerializer.LoadAsync("output.har.gz");
 
 // Serialize to string
 string json = HarSerializer.Serialize(har);
@@ -287,6 +303,8 @@ string json = HarSerializer.Serialize(har);
 // Deserialize from string
 var har = HarSerializer.Deserialize(json);
 ```
+
+**Note**: `SaveAsync()`/`Save()` automatically create intermediate directories and auto-detect `.gz` extension for transparent gzip compression/decompression.
 
 The output conforms to HAR 1.2 specification and can be imported into:
 - **Chrome DevTools**: Network tab > Import HAR file
@@ -305,6 +323,7 @@ using var capture = new HarCapture(driver);
 await using var capture = new HarCapture(driver);
 ```
 
+- `await using` ensures full async channel drain in streaming mode (`HarCapture` → `HarCaptureSession` → `HarStreamWriter`)
 - Disposing while capturing automatically stops capture
 - Double disposal is safe (no-throw)
 - Accessing methods after disposal throws `ObjectDisposedException`
@@ -317,7 +336,8 @@ The library provides a complete HAR 1.2 object model:
 |---|---|
 | `Har` | Root object containing `Log` |
 | `HarLog` | Version, creator, browser, pages, entries |
-| `HarEntry` | Single request/response pair with timings |
+| `HarEntry` | Single request/response pair with timings (+ optional `_webSocketMessages`) |
+| `HarWebSocketMessage` | WebSocket frame (type, time, opcode, data) |
 | `HarRequest` | Method, URL, HTTP version, headers, cookies, query string, body |
 | `HarResponse` | Status, headers, cookies, content, redirect URL |
 | `HarContent` | Response body (size, MIME type, text, encoding) |
@@ -346,10 +366,11 @@ Selenium.HarCapture/
 │       │   ├── CaptureType.cs            # Flags enum
 │       │   ├── HarCaptureSession.cs      # Session orchestrator
 │       │   ├── Internal/
-│       │   │   ├── HarStreamWriter.cs    # Incremental HAR file writer (seek-back)
+│       │   │   ├── HarStreamWriter.cs    # Async channel-based incremental HAR writer
 │       │   │   ├── BrowserCapabilityExtractor.cs # Browser auto-detection
 │       │   │   ├── FileLogger.cs         # Diagnostic file logging
 │       │   │   ├── UrlPatternMatcher.cs  # URL glob filtering
+│       │   │   ├── WebSocketFrameAccumulator.cs # WebSocket frame accumulator
 │       │   │   ├── RequestResponseCorrelator.cs
 │       │   │   ├── CdpTimingMapper.cs
 │       │   │   └── Cdp/                  # CDP reflection adapters
