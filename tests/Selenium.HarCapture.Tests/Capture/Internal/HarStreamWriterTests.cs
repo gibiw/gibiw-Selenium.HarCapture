@@ -178,7 +178,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
         var har = HarSerializer.Load(path);
         har.Log.Entries.Should().HaveCount(2);
         har.Log.Pages.Should().HaveCount(2);
-        har.Log.Pages[0].Id.Should().Be("page1");
+        har.Log.Pages![0].Id.Should().Be("page1");
         har.Log.Pages[1].Id.Should().Be("page2");
     }
 
@@ -204,7 +204,7 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
 
         var har = HarSerializer.Load(path);
         har.Log.Pages.Should().HaveCount(1);
-        har.Log.Pages[0].Id.Should().Be("init");
+        har.Log.Pages![0].Id.Should().Be("init");
         har.Log.Entries.Should().HaveCount(1);
     }
 

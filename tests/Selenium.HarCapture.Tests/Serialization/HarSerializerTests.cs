@@ -525,16 +525,16 @@ public sealed class HarSerializerTests
     }
 
     [Fact]
-    public void SaveAsync_CalledSynchronously_WritesCompleteFile()
+    public async Task SaveAsync_CalledSynchronously_WritesCompleteFile()
     {
-        // Arrange - Simulate user's exact pattern: SaveAsync().GetAwaiter().GetResult()
+        // Arrange - Verify SaveAsync writes complete file
         var har = CreateHarWithLargePayload(3, 400_000); // >1MB total
         var tempFile = Path.GetTempFileName();
 
         try
         {
-            // Act - Call async method synchronously (user's pattern)
-            HarSerializer.SaveAsync(har, tempFile).GetAwaiter().GetResult();
+            // Act
+            await HarSerializer.SaveAsync(har, tempFile);
 
             // Assert
             var expectedJson = HarSerializer.Serialize(har);

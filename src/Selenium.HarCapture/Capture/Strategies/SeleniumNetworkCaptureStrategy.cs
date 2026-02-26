@@ -185,7 +185,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
                 var truncated = _options.MaxResponseBodySize > 0 && (e.ResponseBody?.Length ?? 0) > _options.MaxResponseBodySize;
                 _logger?.Log("INetwork", $"Body: size={bodySize}, truncated={( truncated ? "yes" : "no")}");
                 _logger?.Log("INetwork", $"EntryCompleted fired: id={requestId}");
-                EntryCompleted?.Invoke(entry, e.RequestId);
+                EntryCompleted?.Invoke(entry, requestId);
             }
         }
         catch (Exception ex)
@@ -401,7 +401,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         try
         {
             // Cookie header format: "name1=value1; name2=value2"
-            var pairs = cookieHeader.Split(';');
+            var pairs = cookieHeader!.Split(';');
             foreach (var pair in pairs)
             {
                 var trimmed = pair.Trim();

@@ -435,17 +435,14 @@ public sealed class HarCaptureTests
         public bool SupportsDetailedTimings => true;
         public bool SupportsResponseBody => true;
         public event Action<HarEntry, string>? EntryCompleted;
-        private bool _started;
 
         public Task StartAsync(CaptureOptions options)
         {
-            _started = true;
             return Task.CompletedTask;
         }
 
         public Task StopAsync()
         {
-            _started = false;
             return Task.CompletedTask;
         }
 

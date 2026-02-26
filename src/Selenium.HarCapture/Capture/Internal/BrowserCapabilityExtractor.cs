@@ -16,7 +16,7 @@ internal static class BrowserCapabilityExtractor
         if (string.IsNullOrEmpty(rawName))
             return (null, null);
 
-        var name = NormalizeBrowserName(rawName);
+        var name = NormalizeBrowserName(rawName!);
         var version = string.IsNullOrEmpty(rawVersion) ? null : rawVersion;
 
         return (name, version);

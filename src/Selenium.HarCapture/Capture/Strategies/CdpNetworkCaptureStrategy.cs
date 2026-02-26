@@ -716,7 +716,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         try
         {
             // Cookie header format: "name1=value1; name2=value2"
-            var pairs = cookieHeader.Split(';');
+            var pairs = cookieHeader!.Split(';');
             foreach (var pair in pairs)
             {
                 var trimmed = pair.Trim();

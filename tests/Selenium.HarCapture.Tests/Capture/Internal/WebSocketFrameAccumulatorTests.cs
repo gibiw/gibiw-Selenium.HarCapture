@@ -131,7 +131,7 @@ public sealed class WebSocketFrameAccumulatorTests
     }
 
     [Fact]
-    public void ConcurrentAdds_FromMultipleThreads_DoNotLoseFrames()
+    public async Task ConcurrentAdds_FromMultipleThreads_DoNotLoseFrames()
     {
         // Arrange
         var accumulator = new WebSocketFrameAccumulator();
@@ -159,7 +159,7 @@ public sealed class WebSocketFrameAccumulatorTests
             });
         }
 
-        Task.WaitAll(tasks);
+        await Task.WhenAll(tasks);
 
         var result = accumulator.Flush("ws-1");
 

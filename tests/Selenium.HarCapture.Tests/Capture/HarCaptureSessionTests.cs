@@ -629,17 +629,14 @@ public sealed class HarCaptureSessionTests
         public bool SupportsDetailedTimings => true;
         public bool SupportsResponseBody => true;
         public event Action<HarEntry, string>? EntryCompleted;
-        private bool _started;
 
         public Task StartAsync(CaptureOptions options)
         {
-            _started = true;
             return Task.CompletedTask;
         }
 
         public Task StopAsync()
         {
-            _started = false;
             return Task.CompletedTask;
         }
 
@@ -804,7 +801,7 @@ public sealed class HarCaptureSessionTests
 
         public void Set(string key, object? value) => _caps[key] = value;
 
-        public object? this[string capabilityName] => GetCapability(capabilityName);
+        public object this[string capabilityName] => GetCapability(capabilityName)!;
 
         public object? GetCapability(string capabilityName)
         {

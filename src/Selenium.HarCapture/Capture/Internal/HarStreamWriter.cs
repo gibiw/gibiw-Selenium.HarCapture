@@ -47,14 +47,23 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Waits for all queued operations to be processed by the background consumer.
-    /// Used primarily for testing to ensure synchronous-like behavior.
-    /// This is a simple delay-based approach suitable for testing with small workloads.
+    /// Posts a sentinel flush operation to the channel and awaits its completion,
+    /// guaranteeing all preceding entries have been consumed.
     /// </summary>
     internal async Task WaitForConsumerAsync(TimeSpan? timeout = null)
     {
-        // Simple delay to allow consumer to process queued items
-        // For production, entries are processed asynchronously and callers don't wait
-        await Task.Delay(100).ConfigureAwait(false);
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_channel.Writer.TryWrite(WriteOperation.CreateFlush(tcs)))
+        {
+            return; // channel already completed, consumer has drained
+        }
+
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(30);
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(effectiveTimeout)).ConfigureAwait(false);
+        if (completed != tcs.Task)
+        {
+            throw new TimeoutException("WaitForConsumerAsync timed out waiting for consumer to drain.");
+        }
     }
 
     /// <summary>
@@ -204,6 +213,9 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
                 break;
             case WriteOperation.OpType.Page:
                 WritePageToStream();
+                break;
+            case WriteOperation.OpType.Flush:
+                operation.FlushTcs?.TrySetResult(true);
                 break;
         }
     }

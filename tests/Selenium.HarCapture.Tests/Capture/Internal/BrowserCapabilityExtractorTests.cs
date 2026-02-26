@@ -192,7 +192,7 @@ public sealed class BrowserCapabilityExtractorTests
 
         public void Set(string key, object? value) => _caps[key] = value;
 
-        public object? this[string capabilityName] => GetCapability(capabilityName);
+        public object this[string capabilityName] => GetCapability(capabilityName)!;
 
         public object? GetCapability(string capabilityName)
         {
