@@ -621,6 +621,8 @@ public sealed class HarCaptureTests
         public string StrategyName => "Mock";
         public bool SupportsDetailedTimings => true;
         public bool SupportsResponseBody => true;
+        public double? LastDomContentLoadedTimestamp => null;
+        public double? LastLoadTimestamp => null;
         public event Action<HarEntry, string>? EntryCompleted;
 
         public Task StartAsync(CaptureOptions options, CancellationToken cancellationToken = default)
