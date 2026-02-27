@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using OpenQA.Selenium;
 using Selenium.HarCapture.Capture.Internal;
@@ -151,7 +152,19 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
     /// <returns>A task that represents the asynchronous start operation.</returns>
     /// <exception cref="ObjectDisposedException">Thrown when the session has been disposed.</exception>
     /// <exception cref="InvalidOperationException">Thrown when capture is already started or no strategy is configured.</exception>
-    public async Task StartAsync(string? initialPageRef = null, string? initialPageTitle = null)
+    public Task StartAsync(string? initialPageRef = null, string? initialPageTitle = null)
+        => StartAsync(initialPageRef, initialPageTitle, CancellationToken.None);
+
+    /// <summary>
+    /// Asynchronously starts network traffic capture.
+    /// </summary>
+    /// <param name="initialPageRef">Optional page reference ID for the initial page. If provided, creates the first page in the HAR.</param>
+    /// <param name="initialPageTitle">Optional page title for the initial page. Used only if initialPageRef is provided.</param>
+    /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous start operation.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the session has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when capture is already started or no strategy is configured.</exception>
+    public async Task StartAsync(string? initialPageRef, string? initialPageTitle, CancellationToken cancellationToken)
     {
         if (_disposed)
         {
@@ -167,6 +180,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
         {
             throw new InvalidOperationException("No capture strategy configured. Use the constructor that accepts IWebDriver for automatic strategy selection.");
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         _logger?.Log("HarCapture", $"StartAsync: strategy={_strategy.StrategyName}, captureTypes={_options.CaptureTypes}, maxBodySize={_options.MaxResponseBodySize}");
         _logger?.Log("HarCapture", $"URL filtering: include={_options.UrlIncludePatterns?.Count ?? 0}, exclude={_options.UrlExcludePatterns?.Count ?? 0}");
@@ -193,7 +208,7 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
             _logger?.Log("HarCapture", $"Initial page: ref={initialPageRef}, title={initialPageTitle}");
         }
 
-        await _strategy.StartAsync(_options).ConfigureAwait(false);
+        await _strategy.StartAsync(_options, cancellationToken).ConfigureAwait(false);
         _isCapturing = true;
         _logger?.Log("HarCapture", "Capture started");
     }
@@ -216,7 +231,16 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
     /// <returns>A task that represents the asynchronous stop operation. The task result contains the final HAR object.</returns>
     /// <exception cref="ObjectDisposedException">Thrown when the session has been disposed.</exception>
     /// <exception cref="InvalidOperationException">Thrown when capture is not started.</exception>
-    public async Task<Har> StopAsync()
+    public Task<Har> StopAsync() => StopAsync(CancellationToken.None);
+
+    /// <summary>
+    /// Asynchronously stops network traffic capture and returns the final HAR object.
+    /// </summary>
+    /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
+    /// <returns>A task that represents the asynchronous stop operation. The task result contains the final HAR object.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when the session has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when capture is not started.</exception>
+    public async Task<Har> StopAsync(CancellationToken cancellationToken)
     {
         if (_disposed)
         {
@@ -228,8 +252,10 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
             throw new InvalidOperationException("Capture is not started.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         _logger?.Log("HarCapture", "StopAsync called");
-        await _strategy!.StopAsync().ConfigureAwait(false);
+        await _strategy!.StopAsync(cancellationToken).ConfigureAwait(false);
         _isCapturing = false;
         _strategy.EntryCompleted -= OnEntryCompleted;
 
@@ -251,13 +277,18 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
 
                 _logger?.Log("HarCapture", $"Compressing: {sourcePath} -> {compressedPath}");
 
+                cancellationToken.ThrowIfCancellationRequested();
+
                 using (var inputStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.None, bufferSize: 65536, useAsync: true))
                 using (var outputStream = new FileStream(compressedPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 65536, useAsync: true))
                 using (var gzipStream = new GZipStream(outputStream, CompressionMode.Compress))
                 {
-                    await inputStream.CopyToAsync(gzipStream).ConfigureAwait(false);
+                    // netstandard2.0 CopyToAsync doesn't have CancellationToken overload — use default buffer size
+                    await inputStream.CopyToAsync(gzipStream, 81920).ConfigureAwait(false);
                     // No explicit Flush on GZipStream — Dispose handles footer writing (research pitfall #1)
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Delete uncompressed original if we created a new .gz file
                 if (!string.Equals(sourcePath, compressedPath, StringComparison.OrdinalIgnoreCase))
