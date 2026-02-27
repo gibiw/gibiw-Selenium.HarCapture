@@ -22,6 +22,7 @@ internal sealed class CdpResponseReceivedData
     public string RequestId { get; init; } = null!;
     public CdpResponseInfo Response { get; init; } = null!;
     public double Timestamp { get; init; }
+    public string? Type { get; init; }
 }
 
 /// <summary>

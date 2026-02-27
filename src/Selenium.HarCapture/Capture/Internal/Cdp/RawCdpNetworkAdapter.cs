@@ -143,12 +143,14 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
         var requestId = data.GetProperty("requestId").GetString()!;
         var timestamp = data.GetProperty("timestamp").GetDouble();
         var response = data.GetProperty("response");
+        var type = data.TryGetProperty("type", out var typeProp) ? typeProp.GetString()?.ToLowerInvariant() : null;
 
         ResponseReceived?.Invoke(new CdpResponseReceivedData
         {
             RequestId = requestId,
             Timestamp = timestamp,
-            Response = ParseResponse(response)
+            Response = ParseResponse(response),
+            Type = type
         });
     }
 

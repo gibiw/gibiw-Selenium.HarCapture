@@ -23,7 +23,13 @@ internal sealed class FileLogger : IDisposable
     /// <param name="path">The file path to write logs to, or null for no logging.</param>
     /// <returns>A FileLogger instance, or null if path is null.</returns>
     public static FileLogger? Create(string? path)
-        => path == null ? null : new FileLogger(new StreamWriter(path, append: true));
+    {
+        if (path == null) return null;
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        return new FileLogger(new StreamWriter(path, append: true));
+    }
 
     /// <summary>
     /// Writes a timestamped log line to the file.

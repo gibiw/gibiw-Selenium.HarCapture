@@ -299,7 +299,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             }
 
             // Correlate response with request
-            var entry = _correlator.OnResponseReceived(e.RequestId, harResponse, harTimings, totalTime);
+            var entry = _correlator.OnResponseReceived(e.RequestId, harResponse, harTimings, totalTime, e.Type);
 
             if (entry == null)
             {
@@ -562,7 +562,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 PageRef = entry.PageRef,
                 ServerIPAddress = entry.ServerIPAddress,
                 Connection = entry.Connection,
-                Comment = entry.Comment
+                Comment = entry.Comment,
+                ResourceType = entry.ResourceType
             };
 
             EntryCompleted?.Invoke(updatedEntry, requestId);

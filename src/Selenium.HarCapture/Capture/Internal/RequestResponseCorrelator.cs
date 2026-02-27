@@ -39,10 +39,11 @@ internal sealed class RequestResponseCorrelator
     /// <param name="response">The HAR response data.</param>
     /// <param name="timings">Optional detailed timing breakdown (null if not available).</param>
     /// <param name="totalTime">Total elapsed time for the request in milliseconds.</param>
+    /// <param name="resourceType">CDP resource type (e.g. "document", "script", "stylesheet").</param>
     /// <returns>
     /// A complete <see cref="HarEntry"/> if the matching request was found; otherwise null.
     /// </returns>
-    public HarEntry? OnResponseReceived(string requestId, HarResponse response, HarTimings? timings, double totalTime)
+    public HarEntry? OnResponseReceived(string requestId, HarResponse response, HarTimings? timings, double totalTime, string? resourceType = null)
     {
         if (!_pending.TryRemove(requestId, out var lazy))
         {
@@ -54,6 +55,7 @@ internal sealed class RequestResponseCorrelator
         entry.Response = response;
         entry.Timings = timings;
         entry.Time = totalTime;
+        entry.ResourceType = resourceType;
 
         return entry.ToHarEntry();
     }
@@ -77,6 +79,7 @@ internal sealed class RequestResponseCorrelator
         public HarTimings? Timings { get; set; }
         public DateTimeOffset StartedDateTime { get; set; }
         public double Time { get; set; }
+        public string? ResourceType { get; set; }
 
         public PendingEntry(string requestId)
         {
@@ -101,7 +104,8 @@ internal sealed class RequestResponseCorrelator
                     Send = 0,
                     Wait = 0,
                     Receive = 0
-                }
+                },
+                ResourceType = ResourceType
             };
         }
     }

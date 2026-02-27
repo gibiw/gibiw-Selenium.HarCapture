@@ -17,7 +17,7 @@
     <RepositoryUrl>https://github.com/gibiw/Selenium.Hars.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Version>0.2.3</Version>
+    <Version>0.2.5</Version>
   </PropertyGroup>
 
   <ItemGroup>

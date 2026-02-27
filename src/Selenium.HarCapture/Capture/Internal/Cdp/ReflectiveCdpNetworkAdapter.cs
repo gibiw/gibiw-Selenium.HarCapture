@@ -183,12 +183,14 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     {
         var type = eventArgs.GetType();
         var responseObj = type.GetProperty("Response")!.GetValue(eventArgs);
+        var resourceType = (type.GetProperty("Type")?.GetValue(eventArgs))?.ToString()?.ToLowerInvariant();
 
         ResponseReceived?.Invoke(new CdpResponseReceivedData
         {
             RequestId = (string)type.GetProperty("RequestId")!.GetValue(eventArgs)!,
             Timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!,
-            Response = MapResponse(responseObj!)
+            Response = MapResponse(responseObj!),
+            Type = resourceType
         });
     }
 
