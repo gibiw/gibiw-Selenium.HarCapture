@@ -177,6 +177,41 @@ public sealed class CaptureOptions
     public bool EnableCompression { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets the header names to redact in HAR output (case-insensitive).
+    /// When set, matching header values are replaced with "[REDACTED]" at capture time.
+    /// Default is null (no headers are redacted).
+    /// </summary>
+    /// <remarks>
+    /// Use this to prevent sensitive headers like "Authorization" or "X-Api-Key" from appearing in HAR files.
+    /// Redaction happens before data reaches storage, ensuring sensitive values never persist.
+    /// </remarks>
+    public IReadOnlyList<string>? SensitiveHeaders { get; set; }
+
+    /// <summary>
+    /// Gets or sets the cookie names to redact in HAR output (case-insensitive).
+    /// When set, matching cookie values are replaced with "[REDACTED]" at capture time.
+    /// Default is null (no cookies are redacted).
+    /// </summary>
+    /// <remarks>
+    /// Use this to prevent sensitive cookies like "session_id" or "auth_token" from appearing in HAR files.
+    /// Redaction happens before data reaches storage, ensuring sensitive values never persist.
+    /// </remarks>
+    public IReadOnlyList<string>? SensitiveCookies { get; set; }
+
+    /// <summary>
+    /// Gets or sets the query parameter patterns to redact in HAR output (case-insensitive).
+    /// Supports wildcard patterns: "*" matches any characters, "?" matches a single character.
+    /// When set, matching query parameter values are replaced with "[REDACTED]" at capture time.
+    /// Default is null (no query parameters are redacted).
+    /// </summary>
+    /// <remarks>
+    /// Use this to prevent sensitive query parameters like "api_key", "token", or "password" from appearing in HAR files.
+    /// Examples: "api_*" matches "api_key", "api_secret"; "token" matches exactly "token".
+    /// Redaction happens before data reaches storage, ensuring sensitive values never persist.
+    /// </remarks>
+    public IReadOnlyList<string>? SensitiveQueryParams { get; set; }
+
+    /// <summary>
     /// Sets the output file path for streaming HAR capture.
     /// Entries will be written incrementally to the file, keeping it always valid.
     /// </summary>
@@ -264,6 +299,43 @@ public sealed class CaptureOptions
     public CaptureOptions WithCompression()
     {
         EnableCompression = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets header names to redact in HAR output (case-insensitive).
+    /// Matching header values are replaced with "[REDACTED]" at capture time.
+    /// </summary>
+    /// <param name="headerNames">Header names to redact (e.g., "Authorization", "X-Api-Key").</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithSensitiveHeaders(params string[] headerNames)
+    {
+        SensitiveHeaders = headerNames;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets cookie names to redact in HAR output (case-insensitive).
+    /// Matching cookie values are replaced with "[REDACTED]" at capture time.
+    /// </summary>
+    /// <param name="cookieNames">Cookie names to redact (e.g., "session_id", "auth_token").</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithSensitiveCookies(params string[] cookieNames)
+    {
+        SensitiveCookies = cookieNames;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets query parameter patterns to redact in HAR output (case-insensitive).
+    /// Supports wildcard patterns: "*" matches any characters, "?" matches a single character.
+    /// Matching query parameter values are replaced with "[REDACTED]" at capture time.
+    /// </summary>
+    /// <param name="paramPatterns">Query parameter patterns to redact (e.g., "api_*", "token", "pass*").</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithSensitiveQueryParams(params string[] paramPatterns)
+    {
+        SensitiveQueryParams = paramPatterns;
         return this;
     }
 }
