@@ -36,6 +36,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     private UrlPatternMatcher? _urlMatcher;
     private MimeTypeMatcher? _mimeMatcher;
     private WebSocketFrameAccumulator? _wsAccumulator;
+    private volatile bool _stopping;
     private bool _disposed;
 
     /// <summary>
@@ -131,6 +132,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         if (_adapter != null)
         {
+            // Set stopping flag FIRST to prevent event handlers from accessing disposed resources
+            _stopping = true;
+
             // Unsubscribe from events FIRST to prevent new entries during drain
             _adapter.RequestWillBeSent -= OnRequestWillBeSent;
             _adapter.ResponseReceived -= OnResponseReceived;
@@ -205,6 +209,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _correlator.Clear();
         _bodyCache.Clear();
         _wsAccumulator?.Clear();
+        _stopping = false;
     }
 
     /// <summary>
@@ -215,6 +220,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"RequestWillBeSent: id={e.RequestId}, {e.Request.Method} {e.Request.Url}");
 
             // Suppress normal HTTP flow for WebSocket requests
@@ -263,6 +270,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"ResponseReceived: id={e.RequestId}, status={e.Response.Status}, mime={e.Response.MimeType}");
 
             // Suppress normal HTTP flow for WebSocket requests
@@ -345,6 +354,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// </summary>
     private void OnLoadingFinished(string requestId)
     {
+        if (_stopping) return;
+
         // Response body retrieval happens in OnResponseReceived (immediately after headers received).
         // LoadingFinished is too late - the resource may have been dumped by the browser.
         // We only use this event for metadata (EncodedDataLength).
@@ -357,6 +368,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     /// </summary>
     private void OnLoadingFailed(string requestId)
     {
+        if (_stopping) return;
+
         _logger?.Log("CDP", $"LoadingFailed: id={requestId} (request dropped)");
         // Failed requests do not produce complete HAR entries.
         // Remove pending entry from correlator to free memory.
@@ -368,6 +381,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"WebSocketCreated: id={e.RequestId}, url={e.Url}");
             _wsAccumulator?.OnCreated(e.RequestId, e.Url);
         }
@@ -381,6 +396,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"WebSocketHandshakeRequest: id={e.RequestId}");
             _wsAccumulator?.OnHandshakeRequest(e.RequestId, e.Timestamp, e.WallTime, e.Headers);
         }
@@ -394,6 +411,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"WebSocketHandshakeResponse: id={e.RequestId}, status={e.Status}");
             _wsAccumulator?.OnHandshakeResponse(e.RequestId, e.Timestamp, e.Status, e.StatusText, e.Headers);
         }
@@ -407,6 +426,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _wsAccumulator?.AddFrame(e.RequestId, "send", e.Timestamp, e.Opcode, e.PayloadData);
         }
         catch (Exception ex)
@@ -419,6 +440,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _wsAccumulator?.AddFrame(e.RequestId, "receive", e.Timestamp, e.Opcode, e.PayloadData);
         }
         catch (Exception ex)
@@ -431,6 +454,8 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
+            if (_stopping) return;
+
             _logger?.Log("CDP", $"WebSocketClosed: id={e.RequestId}");
             FlushWebSocket(e.RequestId);
         }
@@ -496,7 +521,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     {
         try
         {
-            if (_adapter == null)
+            if (_stopping || _adapter == null)
             {
                 EntryCompleted?.Invoke(entry, requestId);
                 return;
@@ -837,6 +862,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         }
 
         _disposed = true;
+        _stopping = true;
 
         if (_adapter != null)
         {
