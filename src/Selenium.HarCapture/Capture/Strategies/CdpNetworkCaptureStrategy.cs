@@ -29,7 +29,10 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     private ICdpNetworkAdapter? _adapter;
     private CaptureOptions _options = null!;
     private readonly RequestResponseCorrelator _correlator = new();
-    private readonly ConcurrentDictionary<string, ResponseBodyInfo> _bodyCache = new();
+    private readonly ConcurrentDictionary<string, LinkedListNode<CacheEntry>> _bodyCache = new();
+    private readonly LinkedList<CacheEntry> _lruList = new();
+    private readonly object _cacheLock = new object();
+    private const int MaxCacheEntries = 500;
     private Channel<BodyRetrievalRequest>? _bodyChannel;
     private Task[]? _bodyWorkers;
     private const int BodyWorkerCount = 3;
@@ -207,7 +210,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _bodyChannel = null;
         _bodyWorkers = null;
         _correlator.Clear();
-        _bodyCache.Clear();
+        ClearCache();
         _wsAccumulator?.Clear();
         _stopping = false;
     }
@@ -538,7 +541,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
             // Check body cache — same URL across pages returns identical content,
             // so we can skip the CDP call and reuse the cached body.
-            if (_bodyCache.TryGetValue(url, out var cached))
+            if (TryGetCachedBody(url, out var cached))
             {
                 bodyText = cached.Body;
                 base64Encoded = cached.Base64Encoded;
@@ -547,7 +550,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             else
             {
                 (bodyText, base64Encoded) = await _adapter.GetResponseBodyAsync(requestId).ConfigureAwait(false);
-                _bodyCache[url] = new ResponseBodyInfo { Body = bodyText, Base64Encoded = base64Encoded };
+                CacheBody(url, bodyText, base64Encoded);
                 _logger?.Log("CDP", $"Body retrieved: id={requestId}, size={bodyText?.Length ?? 0}, base64={base64Encoded}");
             }
 
@@ -911,8 +914,78 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _bodyChannel = null;
         _bodyWorkers = null;
         _correlator.Clear();
-        _bodyCache.Clear();
+        ClearCache();
         _wsAccumulator?.Clear();
+    }
+
+    /// <summary>
+    /// Attempts to retrieve a cached response body by URL, promoting it to MRU position on hit.
+    /// Thread-safe: ConcurrentDictionary read + LinkedList mutation under lock.
+    /// </summary>
+    private bool TryGetCachedBody(string url, out (string? Body, bool Base64Encoded) result)
+    {
+        if (_bodyCache.TryGetValue(url, out var node))
+        {
+            lock (_cacheLock)
+            {
+                // Move to front (most recently used)
+                _lruList.Remove(node);
+                _lruList.AddFirst(node);
+            }
+            result = (node.Value.Body, node.Value.Base64Encoded);
+            return true;
+        }
+        result = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Caches a response body with LRU eviction when at capacity.
+    /// Thread-safe: All operations protected by lock.
+    /// </summary>
+    private void CacheBody(string url, string? body, bool base64Encoded)
+    {
+        lock (_cacheLock)
+        {
+            if (_bodyCache.TryGetValue(url, out var existingNode))
+            {
+                // Already cached, move to front
+                _lruList.Remove(existingNode);
+                _lruList.AddFirst(existingNode);
+                return;
+            }
+
+            // Evict oldest if at capacity
+            if (_bodyCache.Count >= MaxCacheEntries)
+            {
+                var oldest = _lruList.Last;
+                if (oldest != null)
+                {
+                    _bodyCache.TryRemove(oldest.Value.Url, out _);
+                    _lruList.RemoveLast();
+                    _logger?.Log("CDP", $"Cache evicted LRU entry: {oldest.Value.Url}");
+                }
+            }
+
+            // Add new entry at front
+            var entry = new CacheEntry { Url = url, Body = body, Base64Encoded = base64Encoded };
+            var node = new LinkedListNode<CacheEntry>(entry);
+            _lruList.AddFirst(node);
+            _bodyCache[url] = node;
+        }
+    }
+
+    /// <summary>
+    /// Clears both the ConcurrentDictionary and LinkedList under lock.
+    /// Called during StopAsync and Dispose.
+    /// </summary>
+    private void ClearCache()
+    {
+        lock (_cacheLock)
+        {
+            _bodyCache.Clear();
+            _lruList.Clear();
+        }
     }
 
     /// <summary>
@@ -953,10 +1026,11 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     }
 
     /// <summary>
-    /// Internal helper for tracking response body info.
+    /// Internal helper for tracking response body info with URL for LRU eviction.
     /// </summary>
-    private sealed class ResponseBodyInfo
+    private sealed class CacheEntry
     {
+        public string Url { get; set; } = "";
         public string? Body { get; set; }
         public bool Base64Encoded { get; set; }
     }
