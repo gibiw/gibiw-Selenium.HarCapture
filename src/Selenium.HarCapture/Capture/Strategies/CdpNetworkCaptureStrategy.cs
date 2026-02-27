@@ -88,9 +88,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         _mimeMatcher = MimeTypeMatcher.FromScope(options.ResponseBodyScope, options.ResponseBodyMimeFilter);
 
         // Create bounded channel + worker tasks for body retrieval
-        _bodyChannel = Channel.CreateBounded<BodyRetrievalRequest>(new BoundedChannelOptions(500)
+        _bodyChannel = Channel.CreateBounded<BodyRetrievalRequest>(new BoundedChannelOptions(2000)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = false,
             SingleWriter = false
         });
@@ -336,9 +336,14 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 }
                 else
                 {
-                    _logger?.Log("CDP", $"Body retrieval: queued for id={e.RequestId}");
                     // Queue body retrieval to bounded channel — workers process concurrently.
-                    _bodyChannel?.Writer.TryWrite(new BodyRetrievalRequest(e.RequestId, entry));
+                    var request = new BodyRetrievalRequest(e.RequestId, entry);
+                    if (!_bodyChannel!.Writer.TryWrite(request))
+                    {
+                        // In Wait mode, TryWrite returns false only when channel is completed
+                        // (i.e., during shutdown). Log for diagnostic purposes.
+                        _logger?.Log("CDP", $"WARN: Body retrieval channel rejected write for id={e.RequestId}, channel may be closing");
+                    }
                 }
             }
         }
