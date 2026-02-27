@@ -33,6 +33,7 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
     private HarStreamWriter? _streamWriter;
     private Har _har = null!;
     private string? _currentPageRef;
+    private string? _finalOutputFilePath;
     private bool _isCapturing;
     private bool _disposed;
 
@@ -62,6 +63,13 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
     /// Gets the configured output file path, if any.
     /// </summary>
     internal string? OutputFilePath => _options.OutputFilePath;
+
+    /// <summary>
+    /// Gets the actual output file path after capture is stopped.
+    /// When compression is enabled, this returns the .gz path instead of the original.
+    /// Falls back to <see cref="OutputFilePath"/> if capture hasn't been stopped yet.
+    /// </summary>
+    internal string? FinalOutputFilePath => _finalOutputFilePath ?? _options.OutputFilePath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HarCaptureSession"/> class without a strategy.
@@ -258,6 +266,7 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                     _logger?.Log("HarCapture", $"Deleted uncompressed file: {sourcePath}");
                 }
 
+                _finalOutputFilePath = compressedPath;
                 var compressedSize = new FileInfo(compressedPath).Length;
                 _logger?.Log("HarCapture", $"Compression completed: {compressedPath} ({compressedSize} bytes)");
             }

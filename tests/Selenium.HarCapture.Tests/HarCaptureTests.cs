@@ -386,6 +386,41 @@ public sealed class HarCaptureTests
         }
     }
 
+    [Fact]
+    public async Task StopAndSaveAsync_Parameterless_WithCompression_DoesNotThrow()
+    {
+        // Arrange — reproduces FileNotFoundException when compression deletes original .har
+        var tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".har");
+        var gzFile = tempFile + ".gz";
+        try
+        {
+            var options = new CaptureOptions()
+                .WithOutputFile(tempFile)
+                .WithCompression();
+            var mockStrategy = new MockCaptureStrategy();
+            var session = new HarCaptureSession(mockStrategy, options);
+            var capture = new HarCapture(session);
+            await capture.StartAsync("page1", "Test Page");
+
+            mockStrategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+
+            // Act — this used to throw FileNotFoundException because
+            // StopAsync compresses .har → .har.gz and deletes the original,
+            // but StopAndSaveAsync tried to read FileInfo on the deleted .har path
+            Func<Task> act = async () => await capture.StopAndSaveAsync();
+
+            // Assert
+            await act.Should().NotThrowAsync();
+            File.Exists(gzFile).Should().BeTrue("compressed file should exist");
+            File.Exists(tempFile).Should().BeFalse("original should be deleted after compression");
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(gzFile)) File.Delete(gzFile);
+        }
+    }
+
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
     {
         return new HarEntry

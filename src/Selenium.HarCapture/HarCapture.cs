@@ -139,8 +139,9 @@ public sealed class HarCapture : IDisposable, IAsyncDisposable
         logger?.Log("HarCapture", "StopAndSave (streaming): stopping...");
         await _session.StopAsync().ConfigureAwait(false);
 
-        var fileSize = new FileInfo(_session.OutputFilePath).Length;
-        logger?.Log("HarCapture", $"StopAndSave (streaming): completed ({fileSize} bytes)");
+        var finalPath = _session.FinalOutputFilePath;
+        var fileSize = new FileInfo(finalPath!).Length;
+        logger?.Log("HarCapture", $"StopAndSave (streaming): completed {finalPath} ({fileSize} bytes)");
     }
 
     /// <summary>
