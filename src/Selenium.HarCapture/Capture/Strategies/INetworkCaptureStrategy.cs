@@ -36,6 +36,18 @@ internal interface INetworkCaptureStrategy : IDisposable
     bool SupportsResponseBody { get; }
 
     /// <summary>
+    /// Gets the monotonic timestamp (in milliseconds) of the last DOMContentLoaded event, or null if not fired.
+    /// Relative to the first request timestamp for the current page.
+    /// </summary>
+    double? LastDomContentLoadedTimestamp { get; }
+
+    /// <summary>
+    /// Gets the monotonic timestamp (in milliseconds) of the last Load event, or null if not fired.
+    /// Relative to the first request timestamp for the current page.
+    /// </summary>
+    double? LastLoadTimestamp { get; }
+
+    /// <summary>
     /// Event fired when a fully-correlated HTTP request/response pair is ready.
     /// The first parameter is the complete HAR entry, the second is the internal request ID.
     /// </summary>

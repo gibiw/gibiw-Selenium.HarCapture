@@ -43,6 +43,11 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
     private volatile bool _stopping;
     private bool _disposed;
 
+    // Page timing tracking (HAR-02)
+    private double _firstRequestTimestamp;
+    private double? _domContentLoadedTimestamp;
+    private double? _loadTimestamp;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="CdpNetworkCaptureStrategy"/> class.
     /// </summary>
@@ -62,6 +67,12 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
 
     /// <inheritdoc />
     public bool SupportsResponseBody => true;
+
+    /// <inheritdoc />
+    public double? LastDomContentLoadedTimestamp => _domContentLoadedTimestamp;
+
+    /// <inheritdoc />
+    public double? LastLoadTimestamp => _loadTimestamp;
 
     /// <inheritdoc />
     public event Action<HarEntry, string>? EntryCompleted;
@@ -134,6 +145,12 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         // Enable Network domain
         await _adapter.EnableNetworkAsync().ConfigureAwait(false);
         _logger?.Log("CDP", "Network domain enabled, capture ready");
+
+        // Enable Page domain for page timing events (HAR-02)
+        await _adapter.EnablePageAsync().ConfigureAwait(false);
+        _adapter.DomContentEventFired += OnDomContentEventFired;
+        _adapter.LoadEventFired += OnLoadEventFired;
+        _logger?.Log("CDP", "Page domain enabled for timing events");
     }
 
     private const int StopTimeoutMs = 10_000;
@@ -165,6 +182,10 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 _adapter.WebSocketFrameReceived -= OnWebSocketFrameReceived;
                 _adapter.WebSocketClosed -= OnWebSocketClosed;
             }
+
+            // Unsubscribe from Page events (HAR-02)
+            _adapter.DomContentEventFired -= OnDomContentEventFired;
+            _adapter.LoadEventFired -= OnLoadEventFired;
 
             // Complete channel and wait for workers to drain (with timeout)
             _bodyChannel?.Writer.TryComplete();
@@ -219,6 +240,21 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             {
                 _logger?.Log("CDP", $"StopAsync: DisableNetwork failed: {ex.Message}");
             }
+
+            // Disable Page domain (best-effort, HAR-02)
+            try
+            {
+                await _adapter.DisablePageAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Page domain disable failure is non-critical
+            }
+
+            // Reset page timing fields for next capture
+            _firstRequestTimestamp = 0;
+            _domContentLoadedTimestamp = null;
+            _loadTimestamp = null;
         }
 
         // Flush all unclosed WebSocket connections
@@ -254,6 +290,12 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             if (_stopping) return;
 
             _logger?.Log("CDP", $"RequestWillBeSent: id={e.RequestId}, {e.Request.Method} {e.Request.Url}");
+
+            // Track first request timestamp for page timing calculation (HAR-02)
+            if (_firstRequestTimestamp == 0)
+            {
+                _firstRequestTimestamp = e.Timestamp;
+            }
 
             // Suppress normal HTTP flow for WebSocket requests
             if (_wsAccumulator != null && _wsAccumulator.IsWebSocket(e.RequestId))
@@ -499,6 +541,26 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         {
             _logger?.Log("CDP", $"Error in OnWebSocketClosed: {ex.Message}");
         }
+    }
+
+    private void OnDomContentEventFired(CdpPageTimingEventData e)
+    {
+        if (_stopping) return;
+        if (_firstRequestTimestamp > 0)
+        {
+            _domContentLoadedTimestamp = (e.Timestamp - _firstRequestTimestamp) * 1000.0;
+        }
+        _logger?.Log("CDP", $"DomContentLoaded: offset={_domContentLoadedTimestamp:F1}ms");
+    }
+
+    private void OnLoadEventFired(CdpPageTimingEventData e)
+    {
+        if (_stopping) return;
+        if (_firstRequestTimestamp > 0)
+        {
+            _loadTimestamp = (e.Timestamp - _firstRequestTimestamp) * 1000.0;
+        }
+        _logger?.Log("CDP", $"Load: offset={_loadTimestamp:F1}ms");
     }
 
     private void FlushWebSocket(string requestId)
@@ -856,9 +918,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Invalid cookie header, return empty list
+            _logger?.Log("CDP", $"ParseCookiesFromHeader failed: {ex.Message}");
         }
 
         return result;
@@ -900,9 +962,9 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Invalid Set-Cookie header, return empty list
+            _logger?.Log("CDP", $"ParseSetCookieHeaders failed: {ex.Message}");
         }
 
         return result;

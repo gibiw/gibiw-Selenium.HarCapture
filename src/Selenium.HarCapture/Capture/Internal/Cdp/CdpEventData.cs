@@ -117,3 +117,11 @@ internal sealed class CdpTimingInfo
     public double SendEnd { get; init; }
     public double ReceiveHeadersEnd { get; init; }
 }
+
+/// <summary>
+/// Version-independent DTO for CDP Page.domContentEventFired / Page.loadEventFired event data.
+/// </summary>
+internal sealed class CdpPageTimingEventData
+{
+    public double Timestamp { get; init; }
+}

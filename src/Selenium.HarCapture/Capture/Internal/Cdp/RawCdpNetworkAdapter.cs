@@ -30,6 +30,9 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
     public event Action<CdpWebSocketFrameData>? WebSocketFrameReceived;
     public event Action<CdpWebSocketClosedData>? WebSocketClosed;
 
+    public event Action<CdpPageTimingEventData>? DomContentEventFired;
+    public event Action<CdpPageTimingEventData>? LoadEventFired;
+
     internal RawCdpNetworkAdapter(DevToolsSession session, FileLogger? logger = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -63,6 +66,10 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
 
         return (body, base64);
     }
+
+    public Task EnablePageAsync() => Task.CompletedTask;
+
+    public Task DisablePageAsync() => Task.CompletedTask;
 
     private void OnDevToolsEventReceived(object? sender, DevToolsEventReceivedEventArgs e)
     {

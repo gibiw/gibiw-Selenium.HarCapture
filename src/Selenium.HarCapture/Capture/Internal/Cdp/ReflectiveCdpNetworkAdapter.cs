@@ -49,6 +49,17 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     private readonly EventInfo? _wsFrameReceivedEvent;
     private readonly EventInfo? _wsClosedEvent;
 
+    // Page domain support (may be null if not available on this CDP version)
+    private object? _page;
+    private MethodInfo? _pageEnableMethod;
+    private MethodInfo? _pageDisableMethod;
+    private Type? _pageEnableSettingsType;
+    private Type? _pageDisableSettingsType;
+    private Delegate? _domContentEventFiredHandler;
+    private Delegate? _loadEventFiredHandler;
+    private EventInfo? _domContentEventFiredEvent;
+    private EventInfo? _loadEventFiredEvent;
+
     private bool _disposed;
 
     public event Action<CdpRequestWillBeSentData>? RequestWillBeSent;
@@ -62,6 +73,9 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     public event Action<CdpWebSocketFrameData>? WebSocketFrameSent;
     public event Action<CdpWebSocketFrameData>? WebSocketFrameReceived;
     public event Action<CdpWebSocketClosedData>? WebSocketClosed;
+
+    public event Action<CdpPageTimingEventData>? DomContentEventFired;
+    public event Action<CdpPageTimingEventData>? LoadEventFired;
 
     internal ReflectiveCdpNetworkAdapter(DevToolsSession session, Type domainsType)
     {
@@ -133,6 +147,41 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
         {
             // WebSocket events not available on this CDP version — proceed without WS support
         }
+
+        // Subscribe to Page events for page timing (best-effort — may be missing on older CDP versions)
+        try
+        {
+            var pageProperty = domainsType.GetProperty("Page");
+            if (pageProperty != null)
+            {
+                _page = pageProperty.GetValue(domains);
+                if (_page != null)
+                {
+                    var pageType = _page.GetType();
+                    var pageNamespace = pageType.Namespace!;
+
+                    _pageEnableSettingsType = pageType.Assembly.GetType($"{pageNamespace}.EnableCommandSettings");
+                    _pageDisableSettingsType = pageType.Assembly.GetType($"{pageNamespace}.DisableCommandSettings");
+
+                    if (_pageEnableSettingsType != null)
+                        _pageEnableMethod = pageType.GetMethod("Enable", new[] { _pageEnableSettingsType });
+                    if (_pageDisableSettingsType != null)
+                        _pageDisableMethod = pageType.GetMethod("Disable", new[] { _pageDisableSettingsType });
+
+                    _domContentEventFiredEvent = pageType.GetEvent("DomContentEventFired");
+                    _loadEventFiredEvent = pageType.GetEvent("LoadEventFired");
+
+                    if (_domContentEventFiredEvent != null)
+                        _domContentEventFiredHandler = SubscribeEvent(_domContentEventFiredEvent, OnDomContentEventFired, _page);
+                    if (_loadEventFiredEvent != null)
+                        _loadEventFiredHandler = SubscribeEvent(_loadEventFiredEvent, OnLoadEventFired, _page);
+                }
+            }
+        }
+        catch
+        {
+            // Page domain not available on this CDP version — proceed without page timing support
+        }
     }
 
     public Task EnableNetworkAsync()
@@ -161,6 +210,22 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
         var base64Encoded = (bool)result.GetType().GetProperty("Base64Encoded")!.GetValue(result)!;
 
         return (body, base64Encoded);
+    }
+
+    public Task EnablePageAsync()
+    {
+        if (_page == null || _pageEnableMethod == null || _pageEnableSettingsType == null)
+            return Task.CompletedTask;
+        var settings = Activator.CreateInstance(_pageEnableSettingsType)!;
+        return (Task)_pageEnableMethod.Invoke(_page, new[] { settings })!;
+    }
+
+    public Task DisablePageAsync()
+    {
+        if (_page == null || _pageDisableMethod == null || _pageDisableSettingsType == null)
+            return Task.CompletedTask;
+        var settings = Activator.CreateInstance(_pageDisableSettingsType)!;
+        return (Task)_pageDisableMethod.Invoke(_page, new[] { settings })!;
     }
 
     private void OnRequestWillBeSent(object eventArgs)
@@ -308,6 +373,20 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
         });
     }
 
+    private void OnDomContentEventFired(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        var timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!;
+        DomContentEventFired?.Invoke(new CdpPageTimingEventData { Timestamp = timestamp });
+    }
+
+    private void OnLoadEventFired(object eventArgs)
+    {
+        var type = eventArgs.GetType();
+        var timestamp = (double)type.GetProperty("Timestamp")!.GetValue(eventArgs)!;
+        LoadEventFired?.Invoke(new CdpPageTimingEventData { Timestamp = timestamp });
+    }
+
     private static CdpRequestInfo MapRequest(object r)
     {
         var type = r.GetType();
@@ -393,9 +472,17 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
     /// </summary>
     private Delegate SubscribeEvent(EventInfo eventInfo, Action<object> handler)
     {
+        return SubscribeEvent(eventInfo, handler, _network);
+    }
+
+    /// <summary>
+    /// Subscribes a typed handler to an event on a specific target and returns the delegate for later unsubscription.
+    /// </summary>
+    private Delegate SubscribeEvent(EventInfo eventInfo, Action<object> handler, object target)
+    {
         var eventArgsType = eventInfo.EventHandlerType!.GetGenericArguments()[0];
         var typedHandler = CreateTypedHandler(eventArgsType, handler);
-        eventInfo.AddEventHandler(_network, typedHandler);
+        eventInfo.AddEventHandler(target, typedHandler);
         return typedHandler;
     }
 
@@ -421,5 +508,10 @@ internal sealed class ReflectiveCdpNetworkAdapter : ICdpNetworkAdapter
             _wsFrameReceivedEvent.RemoveEventHandler(_network, _wsFrameReceivedHandler);
         if (_wsClosedEvent != null && _wsClosedHandler != null)
             _wsClosedEvent.RemoveEventHandler(_network, _wsClosedHandler);
+
+        if (_domContentEventFiredEvent != null && _domContentEventFiredHandler != null && _page != null)
+            _domContentEventFiredEvent.RemoveEventHandler(_page, _domContentEventFiredHandler);
+        if (_loadEventFiredEvent != null && _loadEventFiredHandler != null && _page != null)
+            _loadEventFiredEvent.RemoveEventHandler(_page, _loadEventFiredHandler);
     }
 }

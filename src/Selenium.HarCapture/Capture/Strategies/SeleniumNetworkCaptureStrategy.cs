@@ -49,6 +49,12 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
     public bool SupportsResponseBody => true;
 
     /// <inheritdoc />
+    public double? LastDomContentLoadedTimestamp => null;
+
+    /// <inheritdoc />
+    public double? LastLoadTimestamp => null;
+
+    /// <inheritdoc />
     public event Action<HarEntry, string>? EntryCompleted;
 
     /// <inheritdoc />
@@ -280,6 +286,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             Url = (_redactor != null && _redactor.HasRedactions)
                 ? _redactor.RedactUrl(e.RequestUrl ?? "")
                 : (e.RequestUrl ?? ""),
+            // INetwork API does not expose protocol version; defaults to HTTP/1.1 (HAR-01 limitation)
             HttpVersion = "HTTP/1.1",
             Headers = headers,
             Cookies = cookies,
@@ -462,9 +469,9 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Invalid cookie header, return empty list
+            _logger?.Log("INetwork", $"ParseCookiesFromHeader failed: {ex.Message}");
         }
 
         return result;
@@ -506,9 +513,9 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Invalid Set-Cookie header, return empty list
+            _logger?.Log("INetwork", $"ParseSetCookieHeaders failed: {ex.Message}");
         }
 
         return result;

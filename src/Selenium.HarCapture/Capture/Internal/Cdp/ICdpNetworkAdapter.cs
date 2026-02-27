@@ -21,7 +21,12 @@ internal interface ICdpNetworkAdapter : IDisposable
     event Action<CdpWebSocketFrameData>? WebSocketFrameReceived;
     event Action<CdpWebSocketClosedData>? WebSocketClosed;
 
+    event Action<CdpPageTimingEventData>? DomContentEventFired;
+    event Action<CdpPageTimingEventData>? LoadEventFired;
+
     Task EnableNetworkAsync();
     Task DisableNetworkAsync();
     Task<(string? body, bool base64Encoded)> GetResponseBodyAsync(string requestId);
+    Task EnablePageAsync();
+    Task DisablePageAsync();
 }
