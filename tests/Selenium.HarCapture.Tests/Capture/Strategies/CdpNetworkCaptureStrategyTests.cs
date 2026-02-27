@@ -178,6 +178,34 @@ public class CdpNetworkCaptureStrategyTests
         eventFired.Should().BeFalse("Event handler was subscribed and unsubscribed without firing");
     }
 
+    [Fact]
+    public async Task StopAsync_CalledTwice_DoesNotThrow()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+        var strategy = new CdpNetworkCaptureStrategy(driver);
+
+        // Act & Assert
+        await strategy.StopAsync();
+        Func<Task> act = async () => await strategy.StopAsync();
+
+        await act.Should().NotThrowAsync("StopAsync should be idempotent (stopping flag prevents race conditions)");
+    }
+
+    [Fact]
+    public async Task Dispose_AfterStop_DoesNotThrow()
+    {
+        // Arrange
+        var driver = new NonDevToolsDriver();
+        var strategy = new CdpNetworkCaptureStrategy(driver);
+
+        // Act & Assert
+        await strategy.StopAsync();
+        Action act = () => strategy.Dispose();
+
+        act.Should().NotThrow("Dispose after StopAsync should be safe (stopping flag prevents double-dispose issues)");
+    }
+
     /// <summary>
     /// Minimal stub driver that does NOT implement IDevTools.
     /// Used to test validation logic that requires CDP support.

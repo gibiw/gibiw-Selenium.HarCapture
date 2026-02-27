@@ -421,6 +421,33 @@ public sealed class HarCaptureTests
         }
     }
 
+    [Fact]
+    public async Task StopAndSaveAsync_Parameterless_WithoutCompression_ReportsCorrectPath()
+    {
+        // Arrange — verify FinalOutputFilePath falls back to OutputFilePath when compression is not enabled
+        var tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".har");
+        try
+        {
+            var options = new CaptureOptions().WithOutputFile(tempFile);
+            var mockStrategy = new MockCaptureStrategy();
+            var session = new HarCaptureSession(mockStrategy, options);
+            var capture = new HarCapture(session);
+            await capture.StartAsync("page1", "Test Page");
+            mockStrategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+
+            // Act
+            Func<Task> act = async () => await capture.StopAndSaveAsync();
+
+            // Assert
+            await act.Should().NotThrowAsync();
+            File.Exists(tempFile).Should().BeTrue("uncompressed file should exist when compression disabled");
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
     private static HarEntry CreateTestEntry(string url = "https://example.com/page")
     {
         return new HarEntry
