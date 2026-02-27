@@ -635,7 +635,17 @@ public sealed class HarCaptureSessionTests
             return Task.CompletedTask;
         }
 
+        public Task StartAsync(CaptureOptions options, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task StopAsync()
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
         }
