@@ -572,6 +572,87 @@ public sealed class HarCaptureSessionTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    [Fact]
+    public async Task StopAsync_WithPageTimings_WritesOnContentLoadAndOnLoad()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy
+        {
+            LastDomContentLoadedTimestamp = 1234.5,
+            LastLoadTimestamp = 2345.6
+        };
+        var session = new HarCaptureSession(strategy);
+        await session.StartAsync("page_1", "Test Page");
+
+        // Act
+        var har = await session.StopAsync();
+
+        // Assert
+        har.Log.Pages.Should().NotBeNull();
+        har.Log.Pages.Should().HaveCount(1);
+        har.Log.Pages![0].PageTimings.OnContentLoad.Should().Be(1234.5);
+        har.Log.Pages[0].PageTimings.OnLoad.Should().Be(2345.6);
+    }
+
+    [Fact]
+    public async Task StopAsync_WithNullTimings_LeavesPageTimingsUnchanged()
+    {
+        // Arrange — MockCaptureStrategy has null timings by default (INetwork simulation)
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        await session.StartAsync("page_1", "Test Page");
+
+        // Act
+        var har = await session.StopAsync();
+
+        // Assert — no exception, and timings remain null
+        har.Log.Pages.Should().NotBeNull();
+        har.Log.Pages.Should().HaveCount(1);
+        har.Log.Pages![0].PageTimings.OnContentLoad.Should().BeNull();
+        har.Log.Pages[0].PageTimings.OnLoad.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task StopAsync_WithNoPages_DoesNotCrash()
+    {
+        // Arrange — start without providing a page ref so HAR has no pages
+        var strategy = new MockCaptureStrategy
+        {
+            LastDomContentLoadedTimestamp = 1000.0,
+            LastLoadTimestamp = 2000.0
+        };
+        var session = new HarCaptureSession(strategy);
+        await session.StartAsync(); // no page ref
+
+        // Act — must not throw even though there are no pages
+        var har = await session.StopAsync();
+
+        // Assert
+        (har.Log.Pages == null || har.Log.Pages.Count == 0).Should().BeTrue("no pages should exist");
+    }
+
+    [Fact]
+    public async Task StopAsync_WithPartialTimings_WritesOnlyAvailableValues()
+    {
+        // Arrange — only DOMContentLoaded is set, Load is null
+        var strategy = new MockCaptureStrategy
+        {
+            LastDomContentLoadedTimestamp = 500.0,
+            LastLoadTimestamp = null
+        };
+        var session = new HarCaptureSession(strategy);
+        await session.StartAsync("page_1", "Test Page");
+
+        // Act
+        var har = await session.StopAsync();
+
+        // Assert
+        har.Log.Pages.Should().NotBeNull();
+        har.Log.Pages.Should().HaveCount(1);
+        har.Log.Pages![0].PageTimings.OnContentLoad.Should().Be(500.0);
+        har.Log.Pages[0].PageTimings.OnLoad.Should().BeNull();
+    }
+
     private class MockCapabilitiesDriver : IWebDriver, IHasCapabilities
     {
         public ICapabilities Capabilities { get; set; } = null!;
