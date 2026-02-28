@@ -6,6 +6,7 @@ using OpenQA.Selenium;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
+using Selenium.HarCapture.Tests.Fixtures;
 using Xunit;
 
 namespace Selenium.HarCapture.Tests.Capture.Strategies;
@@ -245,65 +246,4 @@ public class CdpNetworkCaptureStrategyTests
     /// Note: Full behavioral testing requires integration tests with real CDP sessions
     /// that generate 500+ unique URLs. See integration test project.
     /// </summary>
-
-    /// <summary>
-    /// Minimal stub driver that does NOT implement IDevTools.
-    /// Used to test validation logic that requires CDP support.
-    /// </summary>
-    private class NonDevToolsDriver : IWebDriver
-    {
-        public string Url
-        {
-            get => throw new NotImplementedException();
-            set => throw new NotImplementedException();
-        }
-
-        public string Title => throw new NotImplementedException();
-
-        public string PageSource => throw new NotImplementedException();
-
-        public string CurrentWindowHandle => throw new NotImplementedException();
-
-        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
-
-        public void Close()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Quit()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IOptions Manage()
-        {
-            throw new NotImplementedException();
-        }
-
-        public INavigation Navigate()
-        {
-            throw new NotImplementedException();
-        }
-
-        public ITargetLocator SwitchTo()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IWebElement FindElement(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ReadOnlyCollection<IWebElement> FindElements(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            // No-op
-        }
-    }
 }

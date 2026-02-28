@@ -9,6 +9,7 @@ using Selenium.HarCapture;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
+using Selenium.HarCapture.Tests.Fixtures;
 using Xunit;
 
 namespace Selenium.HarCapture.Tests;
@@ -99,7 +100,7 @@ public sealed class HarCaptureTests
         var session = new HarCaptureSession(mockStrategy);
         var capture = new HarCapture(session);
         capture.Start();
-        mockStrategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+        mockStrategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api/test"), "req1");
 
         // Act - get two snapshots
         var har1 = capture.GetHar();
@@ -403,7 +404,7 @@ public sealed class HarCaptureTests
             var capture = new HarCapture(session);
             await capture.StartAsync("page1", "Test Page");
 
-            mockStrategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+            mockStrategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api/test"), "req1");
 
             // Act — this used to throw FileNotFoundException because
             // StopAsync compresses .har → .har.gz and deletes the original,
@@ -434,7 +435,7 @@ public sealed class HarCaptureTests
             var session = new HarCaptureSession(mockStrategy, options);
             var capture = new HarCapture(session);
             await capture.StartAsync("page1", "Test Page");
-            mockStrategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+            mockStrategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api/test"), "req1");
 
             // Act
             Func<Task> act = async () => await capture.StopAndSaveAsync();
@@ -573,76 +574,4 @@ public sealed class HarCaptureTests
         act.Should().NotThrow();
     }
 
-    private static HarEntry CreateTestEntry(string url = "https://example.com/page")
-    {
-        return new HarEntry
-        {
-            StartedDateTime = DateTimeOffset.UtcNow,
-            Time = 100,
-            Request = new HarRequest
-            {
-                Method = "GET",
-                Url = url,
-                HttpVersion = "HTTP/1.1",
-                Cookies = new List<HarCookie>(),
-                Headers = new List<HarHeader>(),
-                QueryString = new List<HarQueryString>(),
-                HeadersSize = -1,
-                BodySize = -1
-            },
-            Response = new HarResponse
-            {
-                Status = 200,
-                StatusText = "OK",
-                HttpVersion = "HTTP/1.1",
-                Cookies = new List<HarCookie>(),
-                Headers = new List<HarHeader>(),
-                Content = new HarContent
-                {
-                    Size = 0,
-                    MimeType = "text/html"
-                },
-                RedirectURL = "",
-                HeadersSize = -1,
-                BodySize = -1
-            },
-            Cache = new HarCache(),
-            Timings = new HarTimings
-            {
-                Send = 1,
-                Wait = 50,
-                Receive = 49
-            }
-        };
-    }
-
-    private sealed class MockCaptureStrategy : INetworkCaptureStrategy
-    {
-        public string StrategyName => "Mock";
-        public bool SupportsDetailedTimings => true;
-        public bool SupportsResponseBody => true;
-        public double? LastDomContentLoadedTimestamp => null;
-        public double? LastLoadTimestamp => null;
-        public event Action<HarEntry, string>? EntryCompleted;
-
-        public Task StartAsync(CaptureOptions options, CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-        }
-
-        // Test helper to simulate an entry arriving
-        public void SimulateEntry(HarEntry entry, string requestId)
-        {
-            EntryCompleted?.Invoke(entry, requestId);
-        }
-    }
 }

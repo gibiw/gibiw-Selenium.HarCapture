@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Web;
 using OpenQA.Selenium;
 using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Models;
@@ -255,12 +254,12 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
             var cookieHeader = headers.FirstOrDefault(h => h.Name.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
             if (cookieHeader != null)
             {
-                cookies = ParseCookiesFromHeader(cookieHeader.Value);
+                cookies = HttpParsingHelper.ParseCookiesFromHeader(cookieHeader.Value, _logger, "INetwork");
             }
         }
 
         // Query string
-        var queryString = ParseQueryString(e.RequestUrl ?? "");
+        var queryString = HttpParsingHelper.ParseQueryString(e.RequestUrl ?? "");
 
         // Apply redaction at capture time (RDCT-04)
         if (_redactor != null && _redactor.HasRedactions)
@@ -276,7 +275,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         {
             postData = new HarPostData
             {
-                MimeType = ExtractMimeType(e.RequestHeaders),
+                MimeType = HttpParsingHelper.ExtractMimeType(e.RequestHeaders),
                 Params = new List<HarParam>(),
                 Text = e.RequestPostData
             };
@@ -321,7 +320,7 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         var cookies = new List<HarCookie>();
         if ((captureTypes & CaptureType.ResponseCookies) != 0)
         {
-            cookies = ParseSetCookieHeaders(e.ResponseHeaders);
+            cookies = HttpParsingHelper.ParseSetCookieHeaders(e.ResponseHeaders, _logger, "INetwork");
         }
 
         // Apply redaction at capture time (RDCT-04)
@@ -389,150 +388,6 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         };
     }
 
-    /// <summary>
-    /// Extracts MIME type from request headers dictionary.
-    /// </summary>
-    /// <param name="headers">The request headers dictionary.</param>
-    /// <param name="defaultMimeType">The default MIME type to return if Content-Type is not found.</param>
-    /// <returns>The MIME type portion of the Content-Type header, or the default value.</returns>
-    internal static string ExtractMimeType(IReadOnlyDictionary<string, string>? headers, string defaultMimeType = "application/octet-stream")
-    {
-        if (headers == null) return defaultMimeType;
-
-        foreach (var kvp in headers)
-        {
-            if (kvp.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(kvp.Value))
-            {
-                // Content-Type may include charset/boundary, extract just the MIME type
-                return kvp.Value.Split(';')[0].Trim();
-            }
-        }
-
-        return defaultMimeType;
-    }
-
-    /// <summary>
-    /// Parses query string from URL.
-    /// </summary>
-    private List<HarQueryString> ParseQueryString(string url)
-    {
-        var result = new List<HarQueryString>();
-
-        try
-        {
-            var uri = new Uri(url);
-            var query = uri.Query;
-
-            if (string.IsNullOrEmpty(query) || query == "?")
-            {
-                return result;
-            }
-
-            // Remove leading '?'
-            query = query.TrimStart('?');
-
-            // Parse key=value pairs
-            var pairs = query.Split('&');
-            foreach (var pair in pairs)
-            {
-                var parts = pair.Split(new[] { '=' }, 2);
-                var name = HttpUtility.UrlDecode(parts[0]);
-                var value = parts.Length > 1 ? HttpUtility.UrlDecode(parts[1]) : "";
-
-                result.Add(new HarQueryString { Name = name, Value = value });
-            }
-        }
-        catch
-        {
-            // Invalid URL, return empty list
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Parses cookies from Cookie header value.
-    /// </summary>
-    private List<HarCookie> ParseCookiesFromHeader(string? cookieHeader)
-    {
-        var result = new List<HarCookie>();
-
-        if (string.IsNullOrEmpty(cookieHeader))
-        {
-            return result;
-        }
-
-        try
-        {
-            // Cookie header format: "name1=value1; name2=value2"
-            var pairs = cookieHeader!.Split(';');
-            foreach (var pair in pairs)
-            {
-                var trimmed = pair.Trim();
-                var parts = trimmed.Split(new[] { '=' }, 2);
-
-                if (parts.Length == 2)
-                {
-                    result.Add(new HarCookie
-                    {
-                        Name = parts[0].Trim(),
-                        Value = parts[1].Trim()
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.Log("INetwork", $"ParseCookiesFromHeader failed: {ex.Message}");
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Parses Set-Cookie headers from response headers dictionary.
-    /// </summary>
-    private List<HarCookie> ParseSetCookieHeaders(IReadOnlyDictionary<string, string>? headers)
-    {
-        var result = new List<HarCookie>();
-
-        if (headers == null)
-        {
-            return result;
-        }
-
-        try
-        {
-            // INetwork uses IReadOnlyDictionary<string, string> for headers
-            foreach (var kvp in headers)
-            {
-                if (kvp.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
-                {
-                    var value = kvp.Value;
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        // Simplified parsing: just extract name=value
-                        var parts = value!.Split(';')[0].Split(new[] { '=' }, 2);
-                        if (parts.Length == 2)
-                        {
-                            result.Add(new HarCookie
-                            {
-                                Name = parts[0].Trim(),
-                                Value = parts[1].Trim()
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.Log("INetwork", $"ParseSetCookieHeaders failed: {ex.Message}");
-        }
-
-        return result;
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -567,27 +422,4 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         _requestTimestamps.Clear();
     }
 
-    /// <summary>
-    /// Extracts the MIME type from the Content-Type header.
-    /// </summary>
-    /// <param name="headers">Request headers dictionary.</param>
-    /// <returns>The MIME type portion of Content-Type, or "application/octet-stream" if not found.</returns>
-    internal static string ExtractMimeType(Dictionary<string, string>? headers)
-    {
-        if (headers == null || headers.Count == 0)
-            return "application/octet-stream";
-
-        // Find Content-Type header (case-insensitive)
-        var contentType = headers.FirstOrDefault(kvp =>
-            kvp.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)).Value;
-
-        if (string.IsNullOrEmpty(contentType))
-            return "application/octet-stream";
-
-        // Strip parameters (e.g., "application/json; charset=utf-8" -> "application/json")
-        var semicolonIndex = contentType.IndexOf(';');
-        return semicolonIndex >= 0
-            ? contentType.Substring(0, semicolonIndex).Trim()
-            : contentType.Trim();
-    }
 }

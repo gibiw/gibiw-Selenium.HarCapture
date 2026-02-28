@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using OpenQA.Selenium;
 using Selenium.HarCapture.Capture;
+using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Capture.Strategies;
+using Selenium.HarCapture.Tests.Fixtures;
 using Xunit;
 
 namespace Selenium.HarCapture.Tests.Capture.Strategies;
@@ -125,7 +127,7 @@ public class SeleniumNetworkCaptureStrategyTests
         };
 
         // Act
-        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+        var result = HttpParsingHelper.ExtractMimeType(headers);
 
         // Assert
         result.Should().Be(expectedMimeType);
@@ -142,7 +144,7 @@ public class SeleniumNetworkCaptureStrategyTests
         };
 
         // Act
-        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+        var result = HttpParsingHelper.ExtractMimeType(headers);
 
         // Assert
         result.Should().Be("application/octet-stream");
@@ -152,7 +154,7 @@ public class SeleniumNetworkCaptureStrategyTests
     public void ExtractRequestMimeType_WithNullHeaders_ReturnsDefault()
     {
         // Act
-        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(null);
+        var result = HttpParsingHelper.ExtractMimeType(null);
 
         // Assert
         result.Should().Be("application/octet-stream");
@@ -165,7 +167,7 @@ public class SeleniumNetworkCaptureStrategyTests
         var headers = new Dictionary<string, string>();
 
         // Act
-        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+        var result = HttpParsingHelper.ExtractMimeType(headers);
 
         // Assert
         result.Should().Be("application/octet-stream");
@@ -181,70 +183,10 @@ public class SeleniumNetworkCaptureStrategyTests
         };
 
         // Act
-        var result = SeleniumNetworkCaptureStrategy.ExtractMimeType(headers);
+        var result = HttpParsingHelper.ExtractMimeType(headers);
 
         // Assert
         result.Should().Be("application/xml");
     }
 
-    /// <summary>
-    /// Minimal stub driver that does NOT implement IDevTools.
-    /// Used to test validation logic and basic properties.
-    /// </summary>
-    private class NonDevToolsDriver : IWebDriver
-    {
-        public string Url
-        {
-            get => throw new NotImplementedException();
-            set => throw new NotImplementedException();
-        }
-
-        public string Title => throw new NotImplementedException();
-
-        public string PageSource => throw new NotImplementedException();
-
-        public string CurrentWindowHandle => throw new NotImplementedException();
-
-        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
-
-        public void Close()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Quit()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IOptions Manage()
-        {
-            throw new NotImplementedException();
-        }
-
-        public INavigation Navigate()
-        {
-            throw new NotImplementedException();
-        }
-
-        public ITargetLocator SwitchTo()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IWebElement FindElement(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ReadOnlyCollection<IWebElement> FindElements(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            // No-op
-        }
-    }
 }

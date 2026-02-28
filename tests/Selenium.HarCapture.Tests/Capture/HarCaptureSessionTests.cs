@@ -12,6 +12,7 @@ using OpenQA.Selenium.DevTools;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
+using Selenium.HarCapture.Tests.Fixtures;
 using Xunit;
 
 namespace Selenium.HarCapture.Tests.Capture;
@@ -172,12 +173,12 @@ public sealed class HarCaptureSessionTests
         session.Start("p1", "Home");
 
         // Act - simulate entry on first page
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/page1"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/page1"), "req1");
         var har1 = session.GetHar();
 
         // Act - create new page and simulate entry
         session.NewPage("p2", "About");
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/page2"), "req2");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/page2"), "req2");
         var har2 = session.GetHar();
 
         // Assert
@@ -196,7 +197,7 @@ public sealed class HarCaptureSessionTests
         var strategy = new MockCaptureStrategy();
         var session = new HarCaptureSession(strategy);
         session.Start();
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/test"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/test"), "req1");
 
         // Act - get two clones
         var har1 = session.GetHar();
@@ -242,7 +243,7 @@ public sealed class HarCaptureSessionTests
         session.Start();
 
         // Act
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/api/test"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api/test"), "req1");
         var har = session.GetHar();
 
         // Assert
@@ -263,11 +264,11 @@ public sealed class HarCaptureSessionTests
         session.Start();
 
         // Act - simulate entry with .png URL (should be filtered)
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/logo.png"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/logo.png"), "req1");
         var har1 = session.GetHar();
 
         // Act - simulate entry with .html URL (should be captured)
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/page.html"), "req2");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/page.html"), "req2");
         var har2 = session.GetHar();
 
         // Assert
@@ -287,7 +288,7 @@ public sealed class HarCaptureSessionTests
         session.Dispose();
 
         // Assert - simulate entry after dispose should not affect anything
-        strategy.SimulateEntry(CreateTestEntry("https://example.com/test"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/test"), "req1");
 
         // Verify GetHar throws after dispose
         var act = () => session.GetHar();
@@ -625,223 +626,6 @@ public sealed class HarCaptureSessionTests
         }
 
         public void Dispose()
-        {
-            // No-op
-        }
-    }
-
-    private static HarEntry CreateTestEntry(string url = "https://example.com/page")
-    {
-        return new HarEntry
-        {
-            StartedDateTime = DateTimeOffset.UtcNow,
-            Time = 100,
-            Request = new HarRequest
-            {
-                Method = "GET",
-                Url = url,
-                HttpVersion = "HTTP/1.1",
-                Cookies = new List<HarCookie>(),
-                Headers = new List<HarHeader>(),
-                QueryString = new List<HarQueryString>(),
-                HeadersSize = -1,
-                BodySize = -1
-            },
-            Response = new HarResponse
-            {
-                Status = 200,
-                StatusText = "OK",
-                HttpVersion = "HTTP/1.1",
-                Cookies = new List<HarCookie>(),
-                Headers = new List<HarHeader>(),
-                Content = new HarContent
-                {
-                    Size = 0,
-                    MimeType = "text/html"
-                },
-                RedirectURL = "",
-                HeadersSize = -1,
-                BodySize = -1
-            },
-            Cache = new HarCache(),
-            Timings = new HarTimings
-            {
-                Send = 1,
-                Wait = 50,
-                Receive = 49
-            }
-        };
-    }
-
-    private sealed class MockCaptureStrategy : INetworkCaptureStrategy
-    {
-        public string StrategyName => "Mock";
-        public bool SupportsDetailedTimings => true;
-        public bool SupportsResponseBody => true;
-        public double? LastDomContentLoadedTimestamp => null;
-        public double? LastLoadTimestamp => null;
-        public event Action<HarEntry, string>? EntryCompleted;
-
-        public Task StartAsync(CaptureOptions options, CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-        }
-
-        // Test helper to simulate an entry arriving
-        public void SimulateEntry(HarEntry entry, string requestId)
-        {
-            EntryCompleted?.Invoke(entry, requestId);
-        }
-    }
-
-    /// <summary>
-    /// Minimal stub driver that does NOT implement IDevTools.
-    /// Used to test that unsupported browsers throw clear exceptions.
-    /// </summary>
-    private class NonDevToolsDriver : IWebDriver
-    {
-        public string Url
-        {
-            get => throw new NotImplementedException();
-            set => throw new NotImplementedException();
-        }
-
-        public string Title => throw new NotImplementedException();
-
-        public string PageSource => throw new NotImplementedException();
-
-        public string CurrentWindowHandle => throw new NotImplementedException();
-
-        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
-
-        public void Close()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Quit()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IOptions Manage()
-        {
-            throw new NotImplementedException();
-        }
-
-        public INavigation Navigate()
-        {
-            throw new NotImplementedException();
-        }
-
-        public ITargetLocator SwitchTo()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IWebElement FindElement(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ReadOnlyCollection<IWebElement> FindElements(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            // No-op
-        }
-    }
-
-    /// <summary>
-    /// Fake driver that implements IDevTools but GetDevToolsSession always throws.
-    /// Used to test runtime CDP failure fallback logic.
-    /// </summary>
-    private class FakeDevToolsDriver : IWebDriver, IDevTools
-    {
-        public string Url
-        {
-            get => throw new NotImplementedException();
-            set => throw new NotImplementedException();
-        }
-
-        public string Title => throw new NotImplementedException();
-
-        public string PageSource => throw new NotImplementedException();
-
-        public string CurrentWindowHandle => throw new NotImplementedException();
-
-        public ReadOnlyCollection<string> WindowHandles => throw new NotImplementedException();
-
-        public bool HasActiveDevToolsSession => false;
-
-        public void Close()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Quit()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IOptions Manage()
-        {
-            throw new NotImplementedException();
-        }
-
-        public INavigation Navigate()
-        {
-            throw new NotImplementedException();
-        }
-
-        public ITargetLocator SwitchTo()
-        {
-            throw new NotImplementedException();
-        }
-
-        public IWebElement FindElement(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ReadOnlyCollection<IWebElement> FindElements(By by)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Dispose()
-        {
-            // No-op
-        }
-
-        public DevToolsSession GetDevToolsSession()
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public DevToolsSession GetDevToolsSession(int devToolsProtocolVersion)
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public DevToolsSession GetDevToolsSession(DevToolsOptions options)
-        {
-            throw new WebDriverException("CDP not available");
-        }
-
-        public void CloseDevToolsSession()
         {
             // No-op
         }

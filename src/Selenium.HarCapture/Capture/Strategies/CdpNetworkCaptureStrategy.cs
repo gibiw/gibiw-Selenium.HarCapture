@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using System.Web;
 using OpenQA.Selenium;
 using OpenQA.Selenium.DevTools;
 using Selenium.HarCapture.Capture.Internal;
@@ -752,12 +751,12 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             var cookieHeader = headers.FirstOrDefault(h => h.Name.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
             if (cookieHeader != null)
             {
-                cookies = ParseCookiesFromHeader(cookieHeader.Value);
+                cookies = HttpParsingHelper.ParseCookiesFromHeader(cookieHeader.Value, _logger, "CDP");
             }
         }
 
         // Query string
-        var queryString = ParseQueryString(cdpRequest.Url);
+        var queryString = HttpParsingHelper.ParseQueryString(cdpRequest.Url);
 
         // Apply redaction at capture time (RDCT-04)
         if (_redactor != null && _redactor.HasRedactions)
@@ -817,7 +816,7 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
         var cookies = new List<HarCookie>();
         if ((captureTypes & CaptureType.ResponseCookies) != 0)
         {
-            cookies = ParseSetCookieHeaders(cdpResponse.Headers);
+            cookies = HttpParsingHelper.ParseSetCookieHeaders(cdpResponse.Headers, _logger, "CDP");
         }
 
         // Apply redaction at capture time (RDCT-04)
@@ -846,128 +845,6 @@ internal sealed class CdpNetworkCaptureStrategy : INetworkCaptureStrategy
             HeadersSize = -1,
             BodySize = -1
         };
-    }
-
-    /// <summary>
-    /// Parses query string from URL.
-    /// </summary>
-    private List<HarQueryString> ParseQueryString(string url)
-    {
-        var result = new List<HarQueryString>();
-
-        try
-        {
-            var uri = new Uri(url);
-            var query = uri.Query;
-
-            if (string.IsNullOrEmpty(query) || query == "?")
-            {
-                return result;
-            }
-
-            // Remove leading '?'
-            query = query.TrimStart('?');
-
-            // Parse key=value pairs
-            var pairs = query.Split('&');
-            foreach (var pair in pairs)
-            {
-                var parts = pair.Split(new[] { '=' }, 2);
-                var name = HttpUtility.UrlDecode(parts[0]);
-                var value = parts.Length > 1 ? HttpUtility.UrlDecode(parts[1]) : "";
-
-                result.Add(new HarQueryString { Name = name, Value = value });
-            }
-        }
-        catch
-        {
-            // Invalid URL, return empty list
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Parses cookies from Cookie header value.
-    /// </summary>
-    private List<HarCookie> ParseCookiesFromHeader(string? cookieHeader)
-    {
-        var result = new List<HarCookie>();
-
-        if (string.IsNullOrEmpty(cookieHeader))
-        {
-            return result;
-        }
-
-        try
-        {
-            // Cookie header format: "name1=value1; name2=value2"
-            var pairs = cookieHeader!.Split(';');
-            foreach (var pair in pairs)
-            {
-                var trimmed = pair.Trim();
-                var parts = trimmed.Split(new[] { '=' }, 2);
-
-                if (parts.Length == 2)
-                {
-                    result.Add(new HarCookie
-                    {
-                        Name = parts[0].Trim(),
-                        Value = parts[1].Trim()
-                    });
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.Log("CDP", $"ParseCookiesFromHeader failed: {ex.Message}");
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Parses Set-Cookie headers from response headers dictionary.
-    /// </summary>
-    private List<HarCookie> ParseSetCookieHeaders(IDictionary<string, string>? headers)
-    {
-        var result = new List<HarCookie>();
-
-        if (headers == null)
-        {
-            return result;
-        }
-
-        try
-        {
-            // CDP may return Set-Cookie as a single entry or multiple entries
-            foreach (var kvp in headers)
-            {
-                if (kvp.Key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
-                {
-                    var value = kvp.Value;
-                    if (!string.IsNullOrEmpty(value))
-                    {
-                        // Simplified parsing: just extract name=value
-                        var parts = value.Split(';')[0].Split(new[] { '=' }, 2);
-                        if (parts.Length == 2)
-                        {
-                            result.Add(new HarCookie
-                            {
-                                Name = parts[0].Trim(),
-                                Value = parts[1].Trim()
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.Log("CDP", $"ParseSetCookieHeaders failed: {ex.Message}");
-        }
-
-        return result;
     }
 
     /// <inheritdoc />
