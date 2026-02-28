@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-02-28
+
+### Added
+
+- **Sensitive data redaction** — `WithSensitiveHeaders(params string[])`, `WithSensitiveCookies(params string[])`, and `WithSensitiveQueryParams(params string[])` fluent methods on `CaptureOptions`. Matched values are replaced with `[REDACTED]` at capture time — original data is never stored. Headers and cookies use case-insensitive exact matching; query parameters support glob wildcards (`*`, `?`).
+- `SensitiveDataRedactor` — internal redactor integrated into both CDP and INetwork capture strategies.
+- **CancellationToken support** — all async methods (`StartAsync`, `StopAsync`, `StopAndSaveAsync`, `CaptureHarAsync`, `SaveAsync`, `LoadAsync`) accept an optional `CancellationToken` with default parameter.
+- **CDP Page domain events** — `Page.domContentEventFired` and `Page.loadEventFired` events are now captured for page timing data.
+- **ResponseBodyScope in INetwork strategy** — `ResponseBodyScope` filtering now applies to the Selenium INetwork capture strategy in addition to CDP.
+- **SourceLink and symbol packages** — `.snupkg` symbol packages with embedded source for debugging.
+- `HttpParsingHelper` — shared internal utility for HTTP header and cookie parsing, extracted from duplicated code.
+- MIT LICENSE file.
+- 44 new unit tests (265 → 309) covering redaction, CancellationToken overloads, LRU cache, stopping flag, and compression path.
+- 11 new integration tests (25 → 36): `RedactionTests` (4), `ResponseBodyScopeTests` (4), `CancellationTokenTests` (3).
+
+### Fixed
+
+- **Race condition on stop** — added volatile `_stopping` flag to guard all CDP event handlers, preventing `NullReferenceException` during `capture.Stop()` under heavy parallel load.
+- **Channel completion mode** — changed body retrieval channel from `TryComplete` to `Wait` mode with backpressure diagnostics, fixing dropped body retrieval requests.
+- **LRU cache for response bodies** — replaced unbounded `ConcurrentDictionary` with bounded LRU cache to prevent memory growth during long captures.
+- **Compression path** — fixed `FileNotFoundException` when using `StopAndSave` with `WithCompression()` enabled.
+
+### Changed
+
+- CancellationToken parameters use default values instead of separate overloads, reducing API surface.
+- Package version bumped to 0.3.0 with SourceLink configuration.
+
 ## [0.2.0] - 2026-02-27
 
 ### Added

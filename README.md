@@ -19,6 +19,7 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **Response body size limiting** to control memory usage
 - **Streaming capture to file** with O(1) memory — async channel-based writer, always-valid HAR, crash-safe
 - **WebSocket capture** — captures WS frames via CDP `_webSocketMessages` extension (Chrome DevTools HAR compatible)
+- **Sensitive data redaction** — mask headers, cookies, and query parameters at capture time with wildcard support
 - **Response body scope filtering** — skip expensive CDP `getResponseBody` calls for unwanted MIME types (CSS, JS, images, fonts) to reduce WebSocket contention and speed up navigation
 - **Bounded body retrieval concurrency** — channel-based worker pool (3 workers) replaces unbounded `Task.Run` for predictable CDP load
 - **Gzip compression** — automatic `.gz` detection in `HarSerializer`, and `WithCompression()` for streaming mode
@@ -126,6 +127,9 @@ var options = new CaptureOptions()
     .WithCreatorName("MyTestSuite")
     .WithBrowser("Chrome", "131.0.6778.86")   // manual browser override (auto-detected by default)
     .WithOutputFile("capture.har")             // streaming mode (O(1) memory)
+    .WithSensitiveHeaders("Authorization")     // redact header values with [REDACTED]
+    .WithSensitiveCookies("session_id")        // redact cookie values
+    .WithSensitiveQueryParams("api_key")       // redact query params (supports wildcards)
     .WithWebSocketCapture()                    // capture WebSocket frames (CDP only)
     .WithCompression()                         // gzip compress on finalization (.har → .har.gz)
     .WithLogFile("capture.log")                // diagnostic logging
@@ -216,6 +220,22 @@ var options = new CaptureOptions()
     .WithResponseBodyScope(ResponseBodyScope.None)
     .WithResponseBodyMimeFilter("application/json");
 ```
+
+#### Sensitive Data Redaction
+
+Redact sensitive values from captured HAR data at capture time — the original values are never stored:
+
+```csharp
+var options = new CaptureOptions()
+    .WithSensitiveHeaders("Authorization", "X-API-Key")
+    .WithSensitiveCookies("session_id", "auth_token")
+    .WithSensitiveQueryParams("api_key", "token_*");
+```
+
+Matched values are replaced with `[REDACTED]` in headers, cookies, and query string parameters respectively.
+
+- **Headers and cookies**: case-insensitive exact name matching
+- **Query parameters**: support glob wildcards (`*` matches any characters, `?` matches a single character) — e.g. `token_*` matches `token_access`, `token_refresh`, etc.
 
 #### Capture Strategy
 
@@ -373,6 +393,26 @@ await using var capture = new HarCapture(driver);
 - Double disposal is safe (no-throw)
 - Accessing methods after disposal throws `ObjectDisposedException`
 
+## CancellationToken Support
+
+All async methods accept an optional `CancellationToken` for cooperative cancellation:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+await capture.StartAsync(cancellationToken: cts.Token);
+var har = await capture.StopAsync(cts.Token);
+await capture.StopAndSaveAsync(cts.Token);
+
+var har = await driver.CaptureHarAsync(async () =>
+{
+    driver.Navigate().GoToUrl("https://example.com");
+}, cancellationToken: cts.Token);
+
+await HarSerializer.SaveAsync(har, "output.har", cancellationToken: cts.Token);
+var loaded = await HarSerializer.LoadAsync("output.har", cts.Token);
+```
+
 ## HAR Model
 
 The library provides a complete HAR 1.2 object model:
@@ -420,6 +460,8 @@ Selenium.HarCapture/
 │       │   │   ├── WebSocketFrameAccumulator.cs # WebSocket frame accumulator
 │       │   │   ├── RequestResponseCorrelator.cs
 │       │   │   ├── CdpTimingMapper.cs
+│       │   │   ├── HttpParsingHelper.cs  # Shared HTTP header/cookie parsing
+│       │   │   ├── SensitiveDataRedactor.cs # Header/cookie/query param redaction
 │       │   │   └── Cdp/                  # CDP reflection adapters
 │       │   └── Strategies/
 │       │       ├── INetworkCaptureStrategy.cs
@@ -432,8 +474,8 @@ Selenium.HarCapture/
 │       └── Serialization/
 │           └── HarSerializer.cs           # JSON serialization
 └── tests/
-    ├── Selenium.HarCapture.Tests/             # Unit tests (265 tests)
-    └── Selenium.HarCapture.IntegrationTests/  # Integration tests (25 tests)
+    ├── Selenium.HarCapture.Tests/             # Unit tests (309 tests)
+    └── Selenium.HarCapture.IntegrationTests/  # Integration tests (36 tests)
 ```
 
 ## Running Tests
@@ -472,6 +514,9 @@ Integration tests launch a real Chrome browser (headless) and a local ASP.NET Co
 | `INetworkFallbackTests` | 1 | ForceSeleniumNetwork with separate Chrome instance |
 | `SerializationRoundtripTests` | 2 | Save/Load roundtrip, HAR 1.2 structure validation |
 | `DisposeCleanupTests` | 3 | Dispose stops capture, ObjectDisposedException, double dispose |
+| `RedactionTests` | 4 | Header, cookie, and query parameter redaction |
+| `ResponseBodyScopeTests` | 4 | Body scope filtering by MIME type |
+| `CancellationTokenTests` | 3 | CancellationToken propagation in async methods |
 
 #### Chrome Version Compatibility
 
