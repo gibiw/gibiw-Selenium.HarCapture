@@ -106,4 +106,13 @@ public sealed class HarEntry
     [JsonPropertyName("_responseBodySize")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public long ResponseBodySize { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the initiator of this network request.
+    /// Vendor extension field (_initiator) populated from CDP requestWillBeSent event.
+    /// Null (and omitted from JSON) when initiator data is unavailable.
+    /// </summary>
+    [JsonPropertyName("_initiator")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HarInitiator? Initiator { get; init; }
 }

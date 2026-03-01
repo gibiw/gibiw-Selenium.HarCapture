@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using Selenium.HarCapture.Capture.Internal.Cdp;
 using Selenium.HarCapture.Models;
 
 namespace Selenium.HarCapture.Capture.Internal;
@@ -24,12 +25,14 @@ internal sealed class RequestResponseCorrelator
     /// <param name="requestId">Unique identifier for this request.</param>
     /// <param name="request">The HAR request data.</param>
     /// <param name="startedDateTime">The timestamp when the request was initiated.</param>
-    public void OnRequestSent(string requestId, HarRequest request, DateTimeOffset startedDateTime)
+    /// <param name="initiator">Optional CDP initiator info (script, parser, etc.).</param>
+    public void OnRequestSent(string requestId, HarRequest request, DateTimeOffset startedDateTime, CdpInitiatorInfo? initiator = null)
     {
         var lazy = _pending.GetOrAdd(requestId, id => new Lazy<PendingEntry>(() => new PendingEntry(id), LazyThreadSafetyMode.ExecutionAndPublication));
         var entry = lazy.Value;
         entry.Request = request;
         entry.StartedDateTime = startedDateTime;
+        entry.Initiator = initiator;
     }
 
     /// <summary>
@@ -80,6 +83,7 @@ internal sealed class RequestResponseCorrelator
         public DateTimeOffset StartedDateTime { get; set; }
         public double Time { get; set; }
         public string? ResourceType { get; set; }
+        public CdpInitiatorInfo? Initiator { get; set; }
 
         public PendingEntry(string requestId)
         {
@@ -105,7 +109,15 @@ internal sealed class RequestResponseCorrelator
                     Wait = 0,
                     Receive = 0
                 },
-                ResourceType = ResourceType
+                ResourceType = ResourceType,
+                Initiator = Initiator != null
+                    ? new HarInitiator
+                    {
+                        Type = Initiator.Type,
+                        Url = Initiator.Url,
+                        LineNumber = Initiator.LineNumber
+                    }
+                    : null
             };
         }
     }

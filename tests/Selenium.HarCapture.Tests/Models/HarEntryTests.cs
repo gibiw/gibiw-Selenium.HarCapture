@@ -8,7 +8,8 @@ using Xunit;
 namespace Selenium.HarCapture.Tests.Models;
 
 /// <summary>
-/// Tests for HarEntry body size extension fields (_requestBodySize, _responseBodySize).
+/// Tests for HarEntry body size extension fields (_requestBodySize, _responseBodySize)
+/// and initiator extension field (_initiator).
 /// </summary>
 public sealed class HarEntryTests
 {
@@ -132,5 +133,99 @@ public sealed class HarEntryTests
         deserialized.Should().NotBeNull();
         deserialized!.RequestBodySize.Should().Be(512);
         deserialized.ResponseBodySize.Should().Be(4096);
+    }
+
+    // _initiator extension field tests
+
+    [Fact]
+    public void HarEntry_Initiator_Serializes()
+    {
+        // Arrange
+        var entry = CreateBaseEntry();
+        var entryWithInitiator = new HarEntry
+        {
+            StartedDateTime = entry.StartedDateTime,
+            Time = entry.Time,
+            Request = entry.Request,
+            Response = entry.Response,
+            Cache = entry.Cache,
+            Timings = entry.Timings,
+            Initiator = new HarInitiator
+            {
+                Type = "script",
+                Url = "https://example.com/app.js",
+                LineNumber = 42
+            }
+        };
+
+        // Act
+        var json = JsonSerializer.Serialize(entryWithInitiator);
+
+        // Assert
+        json.Should().Contain("\"_initiator\"");
+        json.Should().Contain("\"type\":\"script\"");
+        json.Should().Contain("\"url\":\"https://example.com/app.js\"");
+        json.Should().Contain("\"lineNumber\":42");
+    }
+
+    [Fact]
+    public void HarEntry_Initiator_Null_Omitted()
+    {
+        // Arrange — Initiator defaults to null
+        var entry = CreateBaseEntry();
+
+        // Act
+        var json = JsonSerializer.Serialize(entry);
+
+        // Assert
+        json.Should().NotContain("_initiator", "null initiator should be omitted via WhenWritingNull");
+    }
+
+    [Fact]
+    public void HarEntry_Initiator_RoundTrip()
+    {
+        // Arrange
+        var entry = CreateBaseEntry();
+        var entryWithInitiator = new HarEntry
+        {
+            StartedDateTime = entry.StartedDateTime,
+            Time = entry.Time,
+            Request = entry.Request,
+            Response = entry.Response,
+            Cache = entry.Cache,
+            Timings = entry.Timings,
+            Initiator = new HarInitiator
+            {
+                Type = "script",
+                Url = "https://example.com/app.js",
+                LineNumber = 42
+            }
+        };
+
+        // Act
+        var json = JsonSerializer.Serialize(entryWithInitiator);
+        var deserialized = JsonSerializer.Deserialize<HarEntry>(json);
+
+        // Assert
+        deserialized.Should().NotBeNull();
+        deserialized!.Initiator.Should().NotBeNull();
+        deserialized.Initiator!.Type.Should().Be("script");
+        deserialized.Initiator.Url.Should().Be("https://example.com/app.js");
+        deserialized.Initiator.LineNumber.Should().Be(42);
+    }
+
+    [Fact]
+    public void HarInitiator_Parser_SerializesWithoutUrlAndLineNumber()
+    {
+        // Arrange — parser initiator has no url/lineNumber
+        var initiator = new HarInitiator { Type = "parser" };
+
+        // Act
+        var json = JsonSerializer.Serialize(initiator);
+
+        // Assert
+        json.Should().Contain("\"type\":\"parser\"");
+        json.Should().NotContain("url", "url is null and should be omitted");
+        json.Should().NotContain("lineNumber", "lineNumber is null and should be omitted");
     }
 }

@@ -1,5 +1,8 @@
+using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using FluentAssertions;
+using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Capture.Internal.Cdp;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
@@ -138,6 +141,95 @@ public sealed class HarCompletenessTests
     // The change in HAR-03 is replacing silent catch blocks with FileLogger?.Log calls.
     // The behavior (return empty list on parse error) remains the same.
     // This is verified by the existing integration tests.
+
+    #endregion
+
+    #region HAR-05: Request Initiator (_initiator)
+
+    [Fact]
+    public void Correlator_Stores_Initiator_And_Outputs_In_HarEntry()
+    {
+        // Arrange
+        var correlator = new RequestResponseCorrelator();
+        var request = new HarRequest
+        {
+            Method = "GET",
+            Url = "https://example.com/api/data",
+            HttpVersion = "HTTP/1.1",
+            Cookies = new List<HarCookie>(),
+            Headers = new List<HarHeader>(),
+            QueryString = new List<HarQueryString>(),
+            HeadersSize = -1,
+            BodySize = 0
+        };
+        var initiator = new CdpInitiatorInfo
+        {
+            Type = "script",
+            Url = "https://example.com/app.js",
+            LineNumber = 42
+        };
+        var response = new HarResponse
+        {
+            Status = 200,
+            StatusText = "OK",
+            HttpVersion = "HTTP/1.1",
+            Cookies = new List<HarCookie>(),
+            Headers = new List<HarHeader>(),
+            Content = new HarContent { Size = 0, MimeType = "application/json" },
+            RedirectURL = "",
+            HeadersSize = -1,
+            BodySize = -1
+        };
+
+        // Act
+        correlator.OnRequestSent("req-1", request, DateTimeOffset.UtcNow, initiator);
+        var entry = correlator.OnResponseReceived("req-1", response, null, 100.0);
+
+        // Assert
+        entry.Should().NotBeNull();
+        entry!.Initiator.Should().NotBeNull();
+        entry.Initiator!.Type.Should().Be("script");
+        entry.Initiator.Url.Should().Be("https://example.com/app.js");
+        entry.Initiator.LineNumber.Should().Be(42);
+    }
+
+    [Fact]
+    public void Correlator_Null_Initiator_Results_In_Null_HarEntry_Initiator()
+    {
+        // Arrange
+        var correlator = new RequestResponseCorrelator();
+        var request = new HarRequest
+        {
+            Method = "GET",
+            Url = "https://example.com/",
+            HttpVersion = "HTTP/1.1",
+            Cookies = new List<HarCookie>(),
+            Headers = new List<HarHeader>(),
+            QueryString = new List<HarQueryString>(),
+            HeadersSize = -1,
+            BodySize = 0
+        };
+        var response = new HarResponse
+        {
+            Status = 200,
+            StatusText = "OK",
+            HttpVersion = "HTTP/1.1",
+            Cookies = new List<HarCookie>(),
+            Headers = new List<HarHeader>(),
+            Content = new HarContent { Size = 0, MimeType = "text/html" },
+            RedirectURL = "",
+            HeadersSize = -1,
+            BodySize = -1
+        };
+
+        // Act — no initiator passed (uses default null)
+        correlator.OnRequestSent("req-2", request, DateTimeOffset.UtcNow);
+        var entry = correlator.OnResponseReceived("req-2", response, null, 50.0);
+
+        // Assert
+        entry.Should().NotBeNull();
+        entry!.Initiator.Should().BeNull("no initiator was provided");
+    }
 
     #endregion
 }

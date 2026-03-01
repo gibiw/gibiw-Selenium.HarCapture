@@ -12,6 +12,18 @@ internal sealed class CdpRequestWillBeSentData
     public double WallTime { get; init; }
     public double Timestamp { get; init; }
     public CdpResponseInfo? RedirectResponse { get; init; }
+    public CdpInitiatorInfo? Initiator { get; init; }
+}
+
+/// <summary>
+/// Version-independent DTO mirroring CDP Network.Initiator.
+/// Describes what initiated a network request (script, parser, preload, etc.).
+/// </summary>
+internal sealed class CdpInitiatorInfo
+{
+    public string Type { get; init; } = "other";
+    public string? Url { get; init; }
+    public double? LineNumber { get; init; }
 }
 
 /// <summary>
