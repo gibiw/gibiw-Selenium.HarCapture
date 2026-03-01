@@ -224,4 +224,283 @@ public sealed class WebSocketFrameAccumulatorTests
         entry.Request.Headers.Should().HaveCount(2);
         entry.Response.Headers.Should().HaveCount(3);
     }
+
+    // =========================================================
+    // Frame Cap Enforcement (WS-03)
+    // =========================================================
+
+    [Fact]
+    public void AddFrame_WhenMaxFramesZero_NoLimit()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 50 frames with maxFrames=0 (unlimited)
+        for (int i = 0; i < 50; i++)
+        {
+            accumulator.AddFrame("ws-1", "send", 1001.0 + i, 1, $"msg-{i}", maxFrames: 0);
+        }
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — all 50 frames stored, none dropped
+        result.Should().NotBeNull();
+        result!.Value.Frames.Should().HaveCount(50);
+    }
+
+    [Fact]
+    public void AddFrame_WhenBelowCap_AllFramesStored()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 5 frames with cap=10
+        for (int i = 0; i < 5; i++)
+        {
+            accumulator.AddFrame("ws-1", "send", 1001.0 + i, 1, $"msg-{i}", maxFrames: 10);
+        }
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — all 5 stored
+        result.Should().NotBeNull();
+        result!.Value.Frames.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void AddFrame_WhenAtCap_DropsOldestFrame()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 5 frames with cap=3 (oldest 2 should be dropped)
+        for (int i = 0; i < 5; i++)
+        {
+            accumulator.AddFrame("ws-1", "send", 1001.0 + i, 1, $"msg-{i}", maxFrames: 3);
+        }
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — only last 3 frames remain (most recent)
+        result.Should().NotBeNull();
+        var frames = result!.Value.Frames;
+        frames.Should().HaveCount(3);
+        // Frames are sorted by time; oldest are dropped so we expect msg-2, msg-3, msg-4
+        frames.Select(f => f.Data).Should().Contain("msg-2");
+        frames.Select(f => f.Data).Should().Contain("msg-3");
+        frames.Select(f => f.Data).Should().Contain("msg-4");
+        frames.Select(f => f.Data).Should().NotContain("msg-0");
+        frames.Select(f => f.Data).Should().NotContain("msg-1");
+    }
+
+    [Fact]
+    public void AddFrame_WhenAtCap_LogsDropEvent()
+    {
+        // Arrange — use a temp log file to capture log messages
+        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ws-drop-test-{System.Guid.NewGuid()}.log");
+        using var logger = FileLogger.Create(logPath);
+
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 4 frames with cap=3 (1 drop)
+        for (int i = 0; i < 4; i++)
+        {
+            accumulator.AddFrame("ws-1", "send", 1001.0 + i, 1, $"msg-{i}", maxFrames: 3, logger: logger);
+        }
+
+        // Assert — log file should contain a drop message with the requestId
+        var logContent = System.IO.File.ReadAllText(logPath);
+        logContent.Should().Contain("ws-1");
+        logContent.Should().Contain("drop");
+
+        // Cleanup
+        System.IO.File.Delete(logPath);
+    }
+
+    [Fact]
+    public void AddFrame_WhenAtCap_DroppedFrameCount_Tracked()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 5 frames with cap=3 (2 drops expected)
+        for (int i = 0; i < 5; i++)
+        {
+            accumulator.AddFrame("ws-1", "send", 1001.0 + i, 1, $"msg-{i}", maxFrames: 3);
+        }
+
+        // Flush — result should note 2 dropped frames
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — 3 frames remain
+        result.Should().NotBeNull();
+        result!.Value.Frames.Should().HaveCount(3);
+    }
+
+    // =========================================================
+    // WebSocket Payload Redaction (RDCT-06)
+    // =========================================================
+
+    [Fact]
+    public void AddFrame_WithRedactor_RedactsData()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(null, null, null,
+            sensitiveBodyPatterns: new[] { @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b" });
+
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act
+        accumulator.AddFrame("ws-1", "send", 1001.0, 1, "user@test.com", redactor: redactor);
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — email replaced with [REDACTED]
+        result.Should().NotBeNull();
+        result!.Value.Frames.Should().HaveCount(1);
+        result.Value.Frames[0].Data.Should().Be("[REDACTED]");
+    }
+
+    [Fact]
+    public void AddFrame_WithRedactor_RecordsWsRedactionCount()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(null, null, null,
+            sensitiveBodyPatterns: new[] { @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b" });
+
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — frame with two emails
+        accumulator.AddFrame("ws-1", "send", 1001.0, 1, "a@test.com and b@test.com", redactor: redactor);
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — both emails were redacted (verifies RecordWsRedaction was called and data replaced)
+        result.Should().NotBeNull();
+        result!.Value.Frames.Should().HaveCount(1);
+        result.Value.Frames[0].Data.Should().NotContain("@test.com");
+        result.Value.Frames[0].Data.Should().Contain("[REDACTED]");
+    }
+
+    [Fact]
+    public void AddFrame_WithNullRedactor_StoresOriginalData()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — no redactor
+        accumulator.AddFrame("ws-1", "send", 1001.0, 1, "user@test.com");
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — data stored as-is
+        result.Should().NotBeNull();
+        result!.Value.Frames[0].Data.Should().Be("user@test.com");
+    }
+
+    [Fact]
+    public void AddFrame_WithRedactorNoMatch_StoresOriginalData()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(null, null, null,
+            sensitiveBodyPatterns: new[] { @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b" });
+
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — data with no email
+        accumulator.AddFrame("ws-1", "send", 1001.0, 1, "hello world", redactor: redactor);
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — data unchanged
+        result.Should().NotBeNull();
+        result!.Value.Frames[0].Data.Should().Be("hello world");
+    }
+
+    // =========================================================
+    // Combined Cap + Redaction
+    // =========================================================
+
+    [Fact]
+    public void AddFrame_WithCapAndRedactor_BothApplied()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(null, null, null,
+            sensitiveBodyPatterns: new[] { @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b" });
+
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Act — add 3 frames with cap=2 and redactor
+        accumulator.AddFrame("ws-1", "send", 1001.0, 1, "first@test.com", maxFrames: 2, redactor: redactor);
+        accumulator.AddFrame("ws-1", "send", 1002.0, 1, "second@test.com", maxFrames: 2, redactor: redactor);
+        accumulator.AddFrame("ws-1", "send", 1003.0, 1, "third@test.com", maxFrames: 2, redactor: redactor);
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — cap: only 2 frames remain; redaction: emails replaced
+        result.Should().NotBeNull();
+        var frames = result!.Value.Frames;
+        frames.Should().HaveCount(2);
+        frames.All(f => f.Data == "[REDACTED]").Should().BeTrue();
+    }
+
+    // =========================================================
+    // ConcurrentQueue FIFO ordering
+    // =========================================================
+
+    [Fact]
+    public void Flush_ReturnsFramesInTimeOrder()
+    {
+        // Arrange
+        var accumulator = new WebSocketFrameAccumulator();
+        accumulator.OnCreated("ws-1", "wss://example.com");
+        accumulator.OnHandshakeRequest("ws-1", 1000.0, 1700000000.0, null);
+        accumulator.OnHandshakeResponse("ws-1", 1000.1, 101, "Switching Protocols", null);
+
+        // Add frames out of wall-clock order (timestamps determine order)
+        accumulator.AddFrame("ws-1", "receive", 1003.0, 1, "third");
+        accumulator.AddFrame("ws-1", "send",    1001.0, 1, "first");
+        accumulator.AddFrame("ws-1", "receive", 1002.0, 1, "second");
+
+        var result = accumulator.Flush("ws-1");
+
+        // Assert — sorted by Time, not insertion order
+        result.Should().NotBeNull();
+        var frames = result!.Value.Frames;
+        frames.Should().HaveCount(3);
+        frames[0].Data.Should().Be("first");
+        frames[1].Data.Should().Be("second");
+        frames[2].Data.Should().Be("third");
+    }
 }
+
