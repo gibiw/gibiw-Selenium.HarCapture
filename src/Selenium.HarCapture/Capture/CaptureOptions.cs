@@ -353,6 +353,18 @@ public sealed class CaptureOptions
     }
 
     /// <summary>
+    /// Gets or sets the maximum number of WebSocket frames to keep per connection.
+    /// When set to a positive value, oldest frames are dropped when the limit is reached (oldest-first eviction).
+    /// Default is 0 (unlimited — all frames are kept).
+    /// </summary>
+    /// <remarks>
+    /// Use this to cap memory usage for long-lived WebSocket connections that generate many frames.
+    /// A value of 0 means unlimited (all frames retained). Negative values are invalid and will be
+    /// rejected at <c>StartAsync()</c> time by <see cref="Internal.CaptureOptionsValidator"/>.
+    /// </remarks>
+    public int MaxWebSocketFramesPerConnection { get; set; } = 0;
+
+    /// <summary>
     /// Sets regex patterns for redacting sensitive content from response/request bodies.
     /// Matching content is replaced with "[REDACTED]" at capture time.
     /// Each pattern runs with a 100ms timeout and a 512 KB body size gate for ReDoS protection.
@@ -365,6 +377,18 @@ public sealed class CaptureOptions
     public CaptureOptions WithSensitiveBodyPatterns(params string[] patterns)
     {
         SensitiveBodyPatterns = patterns;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum number of WebSocket frames to keep per connection.
+    /// When the limit is reached, the oldest frames are dropped (oldest-first eviction).
+    /// </summary>
+    /// <param name="maxFrames">Maximum frames per connection. Use 0 for unlimited. Negative values are invalid.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithMaxWebSocketFramesPerConnection(int maxFrames)
+    {
+        MaxWebSocketFramesPerConnection = maxFrames;
         return this;
     }
 }

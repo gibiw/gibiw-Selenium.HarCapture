@@ -124,6 +124,44 @@ public sealed class RedactionIntegrationTests
     }
 
     // =========================================================================
+    // CaptureOptions.WithMaxWebSocketFramesPerConnection Tests (Plan 19-03)
+    // =========================================================================
+
+    [Fact]
+    public void MaxWebSocketFramesPerConnection_Default_IsZero()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.MaxWebSocketFramesPerConnection.Should().Be(0);
+    }
+
+    [Fact]
+    public void WithMaxWebSocketFramesPerConnection_SetsValue()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithMaxWebSocketFramesPerConnection(200);
+
+        // Assert
+        options.MaxWebSocketFramesPerConnection.Should().Be(200);
+    }
+
+    [Fact]
+    public void WithMaxWebSocketFramesPerConnection_Returnsself_ForFluentChaining()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithSensitiveBodyPatterns(HarPiiPatterns.Email)
+            .WithMaxWebSocketFramesPerConnection(50);
+
+        // Assert
+        options.SensitiveBodyPatterns.Should().Contain(HarPiiPatterns.Email);
+        options.MaxWebSocketFramesPerConnection.Should().Be(50);
+    }
+
+    // =========================================================================
     // HarPiiPatterns Tests (Plan 19-01)
     // =========================================================================
 

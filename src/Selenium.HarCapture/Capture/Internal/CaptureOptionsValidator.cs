@@ -47,6 +47,12 @@ internal static class CaptureOptionsValidator
                 $"MaxResponseBodySize must be >= 0, but was {options.MaxResponseBodySize}.");
         }
 
+        if (options.MaxWebSocketFramesPerConnection < 0)
+        {
+            errors.Add(
+                $"MaxWebSocketFramesPerConnection must be >= 0, but was {options.MaxWebSocketFramesPerConnection}.");
+        }
+
         if (options.CreatorName != null && options.CreatorName.Length == 0)
         {
             errors.Add(

@@ -179,4 +179,37 @@ public class CaptureOptionsValidatorTests
         ex.Message.Should().Contain("CreatorName");
         ex.Message.Should().Contain("3 error(s)");
     }
+
+    // ── Field-level: MaxWebSocketFramesPerConnection ──────────────────────────
+
+    [Fact]
+    public void ValidateAndThrow_MaxWebSocketFramesPerConnection_Negative_ThrowsArgumentException()
+    {
+        var options = new CaptureOptions { MaxWebSocketFramesPerConnection = -1 };
+
+        Action act = () => CaptureOptionsValidator.ValidateAndThrow(options);
+
+        act.Should().Throw<ArgumentException>()
+            .Which.Message.Should().Contain("MaxWebSocketFramesPerConnection");
+    }
+
+    [Fact]
+    public void ValidateAndThrow_MaxWebSocketFramesPerConnection_Zero_NoError()
+    {
+        var options = new CaptureOptions { MaxWebSocketFramesPerConnection = 0 };
+
+        Action act = () => CaptureOptionsValidator.ValidateAndThrow(options);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ValidateAndThrow_MaxWebSocketFramesPerConnection_Positive_NoError()
+    {
+        var options = new CaptureOptions { MaxWebSocketFramesPerConnection = 100 };
+
+        Action act = () => CaptureOptionsValidator.ValidateAndThrow(options);
+
+        act.Should().NotThrow();
+    }
 }
