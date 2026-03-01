@@ -540,6 +540,12 @@ dotnet test
 - **IntegrationTestBase**: Creates a fresh Chrome headless instance per test class. Provides `NavigateTo()`, `WaitForNetworkIdle()`, `StartCapture()`, `IsCdpCompatible()` helpers
 - **IntegrationTestCollection**: Shares `TestWebServer` across test classes via xUnit `ICollectionFixture`
 
+## Documentation
+
+- [Performance Tuning Guide](docs/performance-tuning.md) — optimize capture speed, memory usage, and CDP WebSocket contention
+- [Troubleshooting Guide](docs/troubleshooting.md) — diagnose and fix common issues (timeouts, memory growth, empty entries)
+- [Migration Guide: v0.2.x to v0.3.x](docs/migration-v02-v03.md) — breaking changes, behavioral changes, and new features
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
