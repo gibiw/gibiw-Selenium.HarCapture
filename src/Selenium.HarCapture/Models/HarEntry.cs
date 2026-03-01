@@ -90,4 +90,20 @@ public sealed class HarEntry
     [JsonPropertyName("_webSocketMessages")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IList<HarWebSocketMessage>? WebSocketMessages { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the actual bytes transferred for the request body.
+    /// Populated from CDP postData length. Omitted when 0 (unknown/none).
+    /// </summary>
+    [JsonPropertyName("_requestBodySize")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long RequestBodySize { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the actual bytes transferred for the response body (on-wire compressed size).
+    /// Populated from CDP Network.Response.encodedDataLength. Omitted when 0 (unknown/none).
+    /// </summary>
+    [JsonPropertyName("_responseBodySize")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long ResponseBodySize { get; init; }
 }

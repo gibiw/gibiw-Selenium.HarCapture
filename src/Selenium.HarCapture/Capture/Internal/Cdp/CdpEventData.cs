@@ -47,6 +47,12 @@ internal sealed class CdpResponseInfo
     public string? MimeType { get; init; }
     public IDictionary<string, string>? Headers { get; init; }
     public CdpTimingInfo? Timing { get; init; }
+
+    /// <summary>
+    /// Total number of bytes received for this request so far (on-wire compressed size).
+    /// Corresponds to CDP Network.Response.encodedDataLength.
+    /// </summary>
+    public long EncodedDataLength { get; init; }
 }
 
 /// <summary>
