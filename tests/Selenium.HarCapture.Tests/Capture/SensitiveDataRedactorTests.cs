@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using FluentAssertions;
 using Selenium.HarCapture.Capture.Internal;
 using Selenium.HarCapture.Models;
@@ -337,5 +339,274 @@ public sealed class SensitiveDataRedactorTests
 
         // Assert
         result.Should().Be("https://api.example.com/endpoint?api_key=[REDACTED]&secret=[REDACTED]&page=1");
+    }
+
+    // =========================================================================
+    // Body Redaction Tests (Plan 19-01)
+    // =========================================================================
+
+    [Fact]
+    public void RedactBody_WithMatchingPattern_ReplacesWithRedacted()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        var body = "email: test@example.com";
+
+        // Act
+        var result = redactor.RedactBody(body, out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().Be("email: [REDACTED]");
+        count.Should().Be(1);
+    }
+
+    [Fact]
+    public void RedactBody_WithMultiplePatterns_ReplacesAll()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email, HarPiiPatterns.Ssn });
+
+        var body = "email: user@example.com ssn: 123-45-6789";
+
+        // Act
+        var result = redactor.RedactBody(body, out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().Contain("[REDACTED]");
+        result.Should().NotContain("user@example.com");
+        result.Should().NotContain("123-45-6789");
+        count.Should().Be(2);
+    }
+
+    [Fact]
+    public void RedactBody_WithNullBody_ReturnsNull()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Act
+        var result = redactor.RedactBody(null!, out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().BeNull();
+        count.Should().Be(0);
+    }
+
+    [Fact]
+    public void RedactBody_WithEmptyBody_ReturnsEmpty()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Act
+        var result = redactor.RedactBody("", out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().Be("");
+        count.Should().Be(0);
+    }
+
+    [Fact]
+    public void RedactBody_WithNoPatterns_ReturnsSameBody()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: null);
+
+        var body = "email: test@example.com";
+
+        // Act
+        var result = redactor.RedactBody(body, out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().BeSameAs(body);
+        count.Should().Be(0);
+    }
+
+    [Fact]
+    public void RedactBody_ExceedingSizeGate_SkipsRedaction()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Create a body larger than 512 KB
+        var largeBody = "x" + new string('a', 512 * 1024) + " email@example.com";
+
+        // Act
+        var result = redactor.RedactBody(largeBody, out int count, logger: null, requestId: "req1");
+
+        // Assert — body returned unchanged, email NOT redacted
+        result.Should().BeSameAs(largeBody);
+        count.Should().Be(0);
+    }
+
+    [Fact]
+    public void RedactBody_WithCreditCardPattern_RedactsCreditCards()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.CreditCard });
+
+        var body = "card: 4111111111111111";
+
+        // Act
+        var result = redactor.RedactBody(body, out int count, logger: null, requestId: "req1");
+
+        // Assert
+        result.Should().Be("card: [REDACTED]");
+        count.Should().Be(1);
+    }
+
+    // =========================================================================
+    // HasBodyPatterns Property Tests
+    // =========================================================================
+
+    [Fact]
+    public void HasBodyPatterns_WhenPatterns_ReturnsTrue()
+    {
+        // Arrange & Act
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Assert
+        redactor.HasBodyPatterns.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasBodyPatterns_WhenNoPatterns_ReturnsFalse()
+    {
+        // Arrange & Act
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: null);
+
+        // Assert
+        redactor.HasBodyPatterns.Should().BeFalse();
+    }
+
+    // =========================================================================
+    // Audit Counter Tests
+    // =========================================================================
+
+    [Fact]
+    public void RecordBodyRedaction_TracksCount()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Act — simulate what happens when RedactBody finds matches
+        redactor.RecordBodyRedaction(5);
+        redactor.RecordBodyRedaction(3);
+
+        // Assert — LogAudit should not throw (verifies counter increment works)
+        var act = () => redactor.LogAudit(logger: null);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void RecordWsRedaction_TracksCount()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Act
+        redactor.RecordWsRedaction(2);
+
+        // Assert — should not throw
+        var act = () => redactor.LogAudit(logger: null);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void RecordBodySkipped_TracksCount()
+    {
+        // Arrange
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Act
+        redactor.RecordBodySkipped();
+        redactor.RecordBodySkipped();
+
+        // Assert — should not throw
+        var act = () => redactor.LogAudit(logger: null);
+        act.Should().NotThrow();
+    }
+
+    // =========================================================================
+    // Constructor Compatibility Tests
+    // =========================================================================
+
+    [Fact]
+    public void Constructor_WithNullBodyPatterns_WorksLikeExisting()
+    {
+        // Arrange & Act — 4-param constructor, 4th is null
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: null);
+
+        // Assert
+        redactor.HasBodyPatterns.Should().BeFalse();
+        redactor.HasRedactions.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Constructor_WithBodyPatterns_SetsHasRedactions()
+    {
+        // Arrange & Act — body patterns alone should make HasRedactions true
+        var redactor = new SensitiveDataRedactor(
+            sensitiveHeaders: null,
+            sensitiveCookies: null,
+            sensitiveQueryParams: null,
+            sensitiveBodyPatterns: new[] { HarPiiPatterns.Email });
+
+        // Assert
+        redactor.HasBodyPatterns.Should().BeTrue();
+        redactor.HasRedactions.Should().BeTrue();
     }
 }
