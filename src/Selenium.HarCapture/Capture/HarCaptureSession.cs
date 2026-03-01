@@ -171,6 +171,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        CaptureOptionsValidator.ValidateAndThrow(_options);
+
         _logger?.Log("HarCapture", $"StartAsync: strategy={_strategy.StrategyName}, captureTypes={_options.CaptureTypes}, maxBodySize={_options.MaxResponseBodySize}");
         _logger?.Log("HarCapture", $"URL filtering: include={_options.UrlIncludePatterns?.Count ?? 0}, exclude={_options.UrlExcludePatterns?.Count ?? 0}");
 
