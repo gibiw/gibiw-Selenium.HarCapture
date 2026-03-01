@@ -46,4 +46,17 @@ public sealed class HarLog
     [JsonPropertyName("comment")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Comment { get; init; }
+
+    /// <summary>
+    /// Gets or initializes optional user-provided key-value metadata embedded in the HAR file.
+    /// Serialized as "_custom" in the HAR log object — a HAR spec extension field.
+    /// </summary>
+    /// <remarks>
+    /// Values must be JSON-primitive-compatible (string, int, long, double, bool).
+    /// After a JSON round-trip, values will be deserialized as <see cref="System.Text.Json.JsonElement"/>.
+    /// Use this to embed context like environment name, transaction IDs, or build numbers.
+    /// </remarks>
+    [JsonPropertyName("_custom")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IDictionary<string, object>? Custom { get; init; }
 }

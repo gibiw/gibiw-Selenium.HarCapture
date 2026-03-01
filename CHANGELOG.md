@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-03-02
+
+### Added
+
+- **CaptureOptions validation** — `StartAsync()` validates all options at startup and throws a single `ArgumentException` listing every violation (conflicting options, invalid values, missing dependencies).
+- **HAR Validation API** — `HarValidator.Validate(har, mode)` checks HAR 1.2 structural correctness without throwing. Returns `HarValidationResult` with errors and warnings. Three modes: `Strict`, `Standard` (default), `Lenient`.
+- **Response body regex redaction** — `WithSensitiveBodyPatterns(params string[])` applies regex patterns to request/response bodies at capture time. 100ms match timeout and 512 KB body size gate for ReDoS protection.
+- **WebSocket payload redaction** — body regex patterns also apply to WebSocket frame payloads when `WithWebSocketCapture()` is enabled.
+- **Built-in PII patterns** — `HarPiiPatterns` static class with pre-built regex: `CreditCard`, `Email`, `Ssn`, `Phone`, `IpAddress`. All patterns are linear-time safe.
+- **Redaction audit trail** — thread-safe counters track body redactions, WebSocket redactions, and skipped bodies. Aggregate counts logged via `WithLogFile()` at session stop.
+- **WebSocket frame cap** — `WithMaxWebSocketFramesPerConnection(int)` limits stored frames per connection with oldest-first eviction. Default 0 (unlimited).
+- **Pause/Resume** — `capture.Pause()` drops incoming entries without queuing; `capture.Resume()` restores normal capture. Both are idempotent. `IsPaused` property for state inspection.
+- **Output file size limit** — `WithMaxOutputFileSize(long)` aborts streaming when the HAR file exceeds the limit. File remains valid JSON with proper footer. Subsequent entries silently dropped.
+- **Progress events** — `capture.EntryWritten` event fires after each entry with `HarCaptureProgress` (entry count, page ref, URL).
+- **Custom metadata** — `WithCustomMetadata(key, value)` embeds key-value pairs in HAR under `_custom` extension field in `HarLog`.
+- **Request/response body size metrics** — `_requestBodySize` and `_responseBodySize` extension fields on `HarEntry` with on-wire byte counts from CDP.
+- **Request initiator** — `_initiator` extension field (`HarInitiator`) populated from CDP `requestWillBeSent` with type, script URL, and line number.
+- **Cache hit/miss** — `HarCache.BeforeRequest` populated for 304/cache-served responses; empty `HarCache` for uncached responses (not null).
+- **TLS certificate details** — `_securityDetails` extension field (`HarSecurityDetails`) with protocol, cipher, subject, issuer, validity period from CDP.
+- **Code coverage in CI** — Coverlet collects coverage on every PR; job fails if coverage is 0%.
+- **Version validation at release** — release workflow checks git tag matches `<Version>` in `.csproj`.
+- **NuGet package icon** — visible on NuGet.org gallery.
+- **Community health files** — `CONTRIBUTING.md`, GitHub issue templates (bug report, feature request), PR template.
+- **Stress tests** — capture >500 requests in a single session with Network and CDP strategies.
+- **Dispose interruption tests** — mid-capture disposal and resource cleanup under load.
+- **Documentation** — performance tuning guide, troubleshooting guide, migration guide (v0.2.x → v0.3.x).
+- 151 new unit tests (309 → 460).
+- 2 new integration tests (36 → 38).
+
+### Changed
+
+- `SensitiveDataRedactor` extended from header/cookie/query-only to full body and WebSocket payload redaction.
+- `WebSocketFrameAccumulator` supports frame count limiting with oldest-first eviction via `ConcurrentQueue`.
+- `HarCaptureSession.OnEntryCompleted()` checks `_isPaused` flag before processing entries.
+- `HarStreamWriter` checks file size against `MaxOutputFileSize` before writing each entry.
+- Package version bumped to 0.3.1.
+
 ## [0.3.0] - 2026-02-28
 
 ### Added

@@ -429,4 +429,113 @@ public sealed class HarStreamWriterTests : IDisposable, IAsyncLifetime
         var har = HarSerializer.Load(path);
         har.Log.Entries.Should().NotBeEmpty("at least some entries should be written");
     }
+
+    // ========== MaxOutputFileSize Tests (Phase 20-02) ==========
+
+    [Fact]
+    public void HarStreamWriter_IsTruncated_FalseByDefault()
+    {
+        var path = TempFile();
+
+        using var writer = new HarStreamWriter(path, "1.2", DefaultCreator);
+
+        writer.IsTruncated.Should().BeFalse("a new writer should not be truncated");
+    }
+
+    [Fact]
+    public async Task HarStreamWriter_MaxOutputFileSize_Zero_Unlimited()
+    {
+        var path = TempFile();
+
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator, maxOutputFileSize: 0))
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                writer.WriteEntry(CreateEntry($"https://example.com/{i}"));
+            }
+            await writer.WaitForConsumerAsync();
+            writer.IsTruncated.Should().BeFalse("maxOutputFileSize=0 means unlimited");
+            writer.Count.Should().Be(20);
+        }
+    }
+
+    [Fact]
+    public async Task HarStreamWriter_MaxOutputFileSize_TruncatesAfterExceeding()
+    {
+        var path = TempFile();
+        // 500 bytes is less than a few entries — first couple of entries should push past the limit
+        const long maxSize = 500;
+
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator, maxOutputFileSize: maxSize))
+        {
+            for (int i = 0; i < 50; i++)
+            {
+                writer.WriteEntry(CreateEntry($"https://example.com/long-url-entry/{i}"));
+            }
+            await writer.WaitForConsumerAsync();
+            writer.IsTruncated.Should().BeTrue("file should have been truncated after exceeding 500 bytes");
+        }
+
+        var har = HarSerializer.Load(path);
+        har.Log.Entries.Should().NotBeEmpty("at least one entry should have been written before truncation");
+        har.Log.Entries.Count.Should().BeLessThan(50, "not all entries should fit within 500 bytes");
+    }
+
+    [Fact]
+    public async Task HarStreamWriter_Truncated_FileIsValidJson()
+    {
+        var path = TempFile();
+        // Use very small limit to force truncation after 1 entry
+        const long maxSize = 600;
+
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator, maxOutputFileSize: maxSize))
+        {
+            for (int i = 0; i < 30; i++)
+            {
+                writer.WriteEntry(CreateEntry($"https://example.com/test/{i}"));
+            }
+            await writer.WaitForConsumerAsync();
+            writer.IsTruncated.Should().BeTrue();
+        }
+
+        // File must be parseable as valid JSON even after truncation
+        var act = () => HarSerializer.Load(path);
+        act.Should().NotThrow("truncated file must still be valid JSON");
+        var har = HarSerializer.Load(path);
+        har.Log.Should().NotBeNull();
+        har.Log.Entries.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task HarStreamWriter_Custom_AppearsInFooter()
+    {
+        var path = TempFile();
+        var custom = new Dictionary<string, object> { ["env"] = "test", ["txId"] = "abc" };
+
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator, custom: custom))
+        {
+            writer.WriteEntry(CreateEntry("https://example.com/api"));
+            await writer.WaitForConsumerAsync();
+        }
+
+        var content = System.IO.File.ReadAllText(path);
+        content.Should().Contain("_custom");
+        content.Should().Contain("env");
+        content.Should().Contain("test");
+    }
+
+    [Fact]
+    public async Task HarStreamWriter_Custom_Null_NoCustomKeyInOutput()
+    {
+        var path = TempFile();
+
+        await using (var writer = new HarStreamWriter(path, "1.2", DefaultCreator, custom: null))
+        {
+            writer.WriteEntry(CreateEntry("https://example.com/api"));
+            await writer.WaitForConsumerAsync();
+        }
+
+        var content = System.IO.File.ReadAllText(path);
+        content.Should().NotContain("_custom");
+    }
 }

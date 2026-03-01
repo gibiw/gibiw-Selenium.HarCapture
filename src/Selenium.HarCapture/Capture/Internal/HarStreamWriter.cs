@@ -31,12 +31,15 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
     private readonly Channel<WriteOperation> _channel;
     private readonly Task _consumerTask;
     private readonly CancellationTokenSource _cts;
+    private readonly long _maxOutputFileSize;
+    private readonly IDictionary<string, object>? _custom;
     private HarBrowser? _browser;
     private string? _comment;
     private long _footerStartPos;
     private int _entryCount;
     private bool _completed;
     private bool _disposed;
+    private bool _truncated;
 
     /// <summary>
     /// Gets the number of entries written so far.
@@ -44,6 +47,14 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
     /// Entries posted via WriteEntry may not be reflected immediately.
     /// </summary>
     public int Count => _entryCount;
+
+    /// <summary>
+    /// Gets a value indicating whether the output file was truncated because it exceeded
+    /// the configured <c>MaxOutputFileSize</c> limit.
+    /// When true, the file is still valid JSON — the last entry that pushed past the limit
+    /// was fully written with a valid footer before truncation was flagged.
+    /// </summary>
+    public bool IsTruncated => _truncated;
 
     /// <summary>
     /// Waits for all queued operations to be processed by the background consumer.
@@ -77,6 +88,8 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
     /// <param name="comment">Optional top-level comment.</param>
     /// <param name="initialPages">Optional initial pages to include.</param>
     /// <param name="logger">Optional file logger for diagnostics.</param>
+    /// <param name="custom">Optional user-provided key-value metadata embedded under "_custom".</param>
+    /// <param name="maxOutputFileSize">Maximum output file size in bytes (0 = unlimited). When exceeded, streaming stops cleanly.</param>
     public HarStreamWriter(
         string filePath,
         string version,
@@ -84,13 +97,17 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
         HarBrowser? browser = null,
         string? comment = null,
         IList<HarPage>? initialPages = null,
-        FileLogger? logger = null)
+        FileLogger? logger = null,
+        IDictionary<string, object>? custom = null,
+        long maxOutputFileSize = 0)
     {
         _options = HarSerializer.CreateOptions(writeIndented: false);
         _browser = browser;
         _comment = comment;
         _pages = initialPages != null ? new List<HarPage>(initialPages) : new List<HarPage>();
         _logger = logger;
+        _custom = custom;
+        _maxOutputFileSize = maxOutputFileSize;
 
         var dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir))
@@ -223,9 +240,13 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
     /// <summary>
     /// Writes an entry to the stream using seek-back technique.
     /// Called only by consumer task (no locking needed).
+    /// Skips the write if the file is already truncated.
     /// </summary>
     private void WriteEntryToStream(HarEntry entry)
     {
+        // If already truncated, silently drop all further entries
+        if (_truncated) return;
+
         _stream.Position = _footerStartPos;
         if (_entryCount > 0) _stream.WriteByte((byte)',');
         JsonSerializer.Serialize(_stream, entry, _options);
@@ -233,6 +254,15 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
         _entryCount++;
         WriteFooter();
         _stream.Flush();
+
+        // Check file size AFTER footer write so file remains valid JSON before truncation flag is set
+        if (_maxOutputFileSize > 0 && _stream.Length > _maxOutputFileSize)
+        {
+            _logger?.Log("HarStreamWriter",
+                $"MaxOutputFileSize limit reached: {_stream.Length} bytes > {_maxOutputFileSize} limit after {_entryCount} entries");
+            _truncated = true;
+            _channel.Writer.TryComplete();
+        }
     }
 
     /// <summary>
@@ -271,6 +301,12 @@ internal sealed class HarStreamWriter : IDisposable, IAsyncDisposable
         {
             footer.Append(",\"comment\":");
             footer.Append(JsonSerializer.Serialize(_comment, _options));
+        }
+
+        if (_custom != null && _custom.Count > 0)
+        {
+            footer.Append(",\"_custom\":");
+            footer.Append(JsonSerializer.Serialize(_custom, _options));
         }
 
         footer.Append("}}");

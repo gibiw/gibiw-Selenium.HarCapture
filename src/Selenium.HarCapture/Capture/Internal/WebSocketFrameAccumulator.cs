@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using Selenium.HarCapture.Capture.Internal.Cdp;
 using Selenium.HarCapture.Models;
 
 namespace Selenium.HarCapture.Capture.Internal;
@@ -11,6 +10,7 @@ namespace Selenium.HarCapture.Capture.Internal;
 /// Thread-safe accumulator for WebSocket frames.
 /// Holds handshake entries internally until the socket closes or capture stops,
 /// then emits complete entries with all accumulated frames attached.
+/// Supports configurable per-connection frame cap (oldest-first drop) and payload redaction.
 /// </summary>
 internal sealed class WebSocketFrameAccumulator
 {
@@ -61,8 +61,26 @@ internal sealed class WebSocketFrameAccumulator
 
     /// <summary>
     /// Accumulates a WebSocket frame. Converts CDP timestamp to wall clock time.
+    /// Optionally enforces a per-connection frame cap (oldest frame is dropped when cap is exceeded)
+    /// and applies body pattern redaction to frame data.
     /// </summary>
-    public void AddFrame(string requestId, string type, double timestamp, int opcode, string data)
+    /// <param name="requestId">The WebSocket connection request ID.</param>
+    /// <param name="type">The frame type ("send" or "receive").</param>
+    /// <param name="timestamp">CDP monotonic timestamp in seconds.</param>
+    /// <param name="opcode">WebSocket opcode.</param>
+    /// <param name="data">Frame payload data.</param>
+    /// <param name="maxFrames">Maximum frames to retain per connection. 0 means unlimited (default).</param>
+    /// <param name="redactor">Optional redactor to apply body patterns to frame data.</param>
+    /// <param name="logger">Optional logger for cap drop events and redaction diagnostics.</param>
+    public void AddFrame(
+        string requestId,
+        string type,
+        double timestamp,
+        int opcode,
+        string data,
+        int maxFrames = 0,
+        SensitiveDataRedactor? redactor = null,
+        FileLogger? logger = null)
     {
         if (!_connections.TryGetValue(requestId, out var conn))
             return;
@@ -70,12 +88,28 @@ internal sealed class WebSocketFrameAccumulator
         // Convert CDP monotonic timestamp to wall clock (epoch seconds)
         var wallTime = conn.HandshakeWallTime + (timestamp - conn.HandshakeTimestamp);
 
-        conn.Frames.Add(new HarWebSocketMessage
+        // Apply body pattern redaction to WebSocket payload (RDCT-06)
+        string finalData = data;
+        if (redactor != null && redactor.HasBodyPatterns)
+        {
+            finalData = redactor.RedactBody(data, out int wsCount, logger, requestId);
+            if (wsCount > 0)
+                redactor.RecordWsRedaction(wsCount);
+        }
+
+        // Enforce MaxFramesPerConnection (WS-03): drop oldest when cap is exceeded
+        if (maxFrames > 0 && conn.Frames.Count >= maxFrames)
+        {
+            conn.Frames.TryDequeue(out _);
+            logger?.Log("CDP", $"WS frame cap ({maxFrames}) hit for id={requestId}: oldest frame dropped");
+        }
+
+        conn.Frames.Enqueue(new HarWebSocketMessage
         {
             Type = type,
             Time = wallTime,
             Opcode = opcode,
-            Data = data
+            Data = finalData
         });
     }
 
@@ -89,7 +123,7 @@ internal sealed class WebSocketFrameAccumulator
             return null;
 
         var entry = BuildEntry(conn);
-        var frames = conn.Frames.ToList();
+        var frames = conn.Frames.ToArray().ToList();
         frames.Sort((a, b) => a.Time.CompareTo(b.Time));
 
         return (entry, frames);
@@ -182,6 +216,10 @@ internal sealed class WebSocketFrameAccumulator
         public long ResponseStatus { get; set; } = 101;
         public string? ResponseStatusText { get; set; } = "Switching Protocols";
         public IDictionary<string, string>? ResponseHeaders { get; set; }
-        public ConcurrentBag<HarWebSocketMessage> Frames { get; } = new();
+
+        /// <summary>
+        /// FIFO queue for WebSocket frames — enables oldest-first frame cap enforcement via TryDequeue.
+        /// </summary>
+        public ConcurrentQueue<HarWebSocketMessage> Frames { get; } = new();
     }
 }

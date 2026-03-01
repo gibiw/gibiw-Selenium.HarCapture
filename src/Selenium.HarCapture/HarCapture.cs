@@ -39,6 +39,22 @@ public sealed class HarCapture : IDisposable, IAsyncDisposable
     public bool IsCapturing => _session?.IsCapturing ?? false;
 
     /// <summary>
+    /// Gets a value indicating whether capture is currently paused.
+    /// Returns false when no session is active (e.g., after disposal).
+    /// </summary>
+    public bool IsPaused => _session?.IsPaused ?? false;
+
+    /// <summary>
+    /// Fires after each HAR entry has been written to the capture.
+    /// Subscribes to the underlying session's EntryWritten event.
+    /// </summary>
+    public event EventHandler<HarCaptureProgress>? EntryWritten
+    {
+        add { if (_session != null) _session.EntryWritten += value; }
+        remove { if (_session != null) _session.EntryWritten -= value; }
+    }
+
+    /// <summary>
     /// Gets the name of the active capture strategy (e.g., "CDP", "INetwork").
     /// Returns null if no strategy is configured or the session has been disposed.
     /// </summary>
@@ -270,6 +286,28 @@ public sealed class HarCapture : IDisposable, IAsyncDisposable
     {
         ThrowIfDisposed();
         _session!.NewPage(pageRef, pageTitle);
+    }
+
+    /// <summary>
+    /// Pauses capture. Entries that arrive while paused are dropped (not queued).
+    /// Idempotent — calling Pause() multiple times does not throw.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    public void Pause()
+    {
+        ThrowIfDisposed();
+        _session!.Pause();
+    }
+
+    /// <summary>
+    /// Resumes capture after a pause. Entries that arrive after this call are recorded normally.
+    /// Idempotent — calling Resume() multiple times (or without a prior Pause()) does not throw.
+    /// </summary>
+    /// <exception cref="ObjectDisposedException">Thrown when the capture has been disposed.</exception>
+    public void Resume()
+    {
+        ThrowIfDisposed();
+        _session!.Resume();
     }
 
     /// <summary>

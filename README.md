@@ -19,7 +19,9 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **Response body size limiting** to control memory usage
 - **Streaming capture to file** with O(1) memory — async channel-based writer, always-valid HAR, crash-safe
 - **WebSocket capture** — captures WS frames via CDP `_webSocketMessages` extension (Chrome DevTools HAR compatible)
-- **Sensitive data redaction** — mask headers, cookies, and query parameters at capture time with wildcard support
+- **Sensitive data redaction** — mask headers, cookies, query parameters, response/request bodies, and WebSocket payloads at capture time with wildcard and regex support
+- **Built-in PII patterns** — `HarPiiPatterns` ships regex for credit cards, emails, SSNs, phone numbers, and IP addresses
+- **Redaction audit trail** — aggregate redaction counts logged at session stop (body, WebSocket, skipped)
 - **Response body scope filtering** — skip expensive CDP `getResponseBody` calls for unwanted MIME types (CSS, JS, images, fonts) to reduce WebSocket contention and speed up navigation
 - **Bounded body retrieval concurrency** — channel-based worker pool (3 workers) replaces unbounded `Task.Run` for predictable CDP load
 - **Gzip compression** — automatic `.gz` detection in `HarSerializer`, and `WithCompression()` for streaming mode
@@ -28,6 +30,15 @@ A .NET library for capturing HTTP Archive (HAR 1.2) files from Selenium WebDrive
 - **Fluent configuration API**
 - **One-liner capture** via extension methods
 - **Serialization** to/from JSON and `.gz` files with auto directory creation
+- **Pause/Resume capture** — skip sections (e.g., auth flows) without stopping the session
+- **Output file size limit** — `WithMaxOutputFileSize()` aborts streaming gracefully when file exceeds limit
+- **Progress events** — `EntryWritten` event delivers entry count, page ref, and URL as entries are captured
+- **Custom metadata** — embed key-value data in HAR via `WithCustomMetadata()` (`_custom` extension field)
+- **Request/response size metrics** — `_requestBodySize` and `_responseBodySize` extension fields with on-wire byte counts
+- **HAR extensions** — `_initiator` (request origin), `_securityDetails` (TLS certificate), cache hit/miss status from CDP
+- **WebSocket frame cap** — `WithMaxWebSocketFramesPerConnection()` limits stored frames per connection (oldest-first eviction)
+- **CaptureOptions validation** — conflicting or invalid options detected at `StartAsync()` with actionable error messages
+- **HAR Validation API** — `HarValidator.Validate(har)` checks HAR 1.2 structural correctness before saving
 - **Dual disposal** pattern (IDisposable + IAsyncDisposable) with full async channel drain
 
 ## Installation
@@ -127,10 +138,14 @@ var options = new CaptureOptions()
     .WithCreatorName("MyTestSuite")
     .WithBrowser("Chrome", "131.0.6778.86")   // manual browser override (auto-detected by default)
     .WithOutputFile("capture.har")             // streaming mode (O(1) memory)
+    .WithMaxOutputFileSize(50_000_000)         // abort streaming at 50 MB
     .WithSensitiveHeaders("Authorization")     // redact header values with [REDACTED]
     .WithSensitiveCookies("session_id")        // redact cookie values
     .WithSensitiveQueryParams("api_key")       // redact query params (supports wildcards)
+    .WithSensitiveBodyPatterns(HarPiiPatterns.CreditCard) // redact PII in bodies
     .WithWebSocketCapture()                    // capture WebSocket frames (CDP only)
+    .WithMaxWebSocketFramesPerConnection(1000) // cap frames per WS connection
+    .WithCustomMetadata("env", "staging")      // embed metadata in HAR
     .WithCompression()                         // gzip compress on finalization (.har → .har.gz)
     .WithLogFile("capture.log")                // diagnostic logging
     .ForceSeleniumNetwork();                   // force INetwork API
@@ -229,13 +244,21 @@ Redact sensitive values from captured HAR data at capture time — the original 
 var options = new CaptureOptions()
     .WithSensitiveHeaders("Authorization", "X-API-Key")
     .WithSensitiveCookies("session_id", "auth_token")
-    .WithSensitiveQueryParams("api_key", "token_*");
+    .WithSensitiveQueryParams("api_key", "token_*")
+    .WithSensitiveBodyPatterns(
+        HarPiiPatterns.CreditCard,
+        HarPiiPatterns.Email,
+        @"secret[_-]?key\s*[:=]\s*\S+"   // custom regex
+    );
 ```
 
-Matched values are replaced with `[REDACTED]` in headers, cookies, and query string parameters respectively.
+Matched values are replaced with `[REDACTED]` in headers, cookies, query string parameters, request/response bodies, and WebSocket payloads.
 
 - **Headers and cookies**: case-insensitive exact name matching
 - **Query parameters**: support glob wildcards (`*` matches any characters, `?` matches a single character) — e.g. `token_*` matches `token_access`, `token_refresh`, etc.
+- **Body patterns**: regex with 100ms timeout per match; bodies over 512 KB are skipped (ReDoS protection)
+- **Built-in PII patterns** (`HarPiiPatterns`): `CreditCard`, `Email`, `Ssn`, `Phone`, `IpAddress`
+- **Audit trail**: aggregate redaction counts (body, WebSocket, skipped) logged at session stop via `WithLogFile()`
 
 #### Capture Strategy
 
@@ -284,6 +307,7 @@ For large captures or memory-constrained environments, use streaming mode. Entri
 var options = new CaptureOptions()
     .WithOutputFile(@"C:\Logs\capture.har")    // enables streaming mode
     .WithCompression()                          // optional: gzip on finalization → .har.gz
+    .WithMaxOutputFileSize(50_000_000)          // optional: abort at 50 MB
     .WithLogFile(@"C:\Logs\capture.log")        // optional diagnostics
     .WithMaxResponseBodySize(5_000_000);
 
@@ -376,6 +400,90 @@ The output conforms to HAR 1.2 specification and can be imported into:
 - **Firefox DevTools**: Network tab > Import HAR
 - **HAR Viewer**: [http://www.softwareishard.com/har/viewer/](http://www.softwareishard.com/har/viewer/)
 
+### Pause/Resume Capture
+
+Skip sections of traffic (e.g., auth flows) without stopping the session:
+
+```csharp
+using var capture = new HarCapture(driver);
+capture.Start();
+
+driver.Navigate().GoToUrl("https://example.com/login");
+capture.Pause();   // entries during auth are dropped, not queued
+
+driver.FindElement(By.Id("username")).SendKeys("user");
+driver.FindElement(By.Id("password")).SendKeys("pass");
+driver.FindElement(By.Id("login")).Click();
+
+capture.Resume();  // capture resumes normally
+driver.Navigate().GoToUrl("https://example.com/dashboard");
+
+var har = capture.Stop(); // contains only pre-login and post-login traffic
+```
+
+Both `Pause()` and `Resume()` are idempotent — calling either multiple times is safe.
+
+### Progress Events
+
+Monitor capture progress in real time:
+
+```csharp
+using var capture = new HarCapture(driver);
+capture.EntryWritten += (sender, progress) =>
+{
+    Console.WriteLine($"[{progress.EntryCount}] {progress.EntryUrl} (page: {progress.CurrentPageRef})");
+};
+
+capture.Start();
+driver.Navigate().GoToUrl("https://example.com");
+```
+
+### Custom Metadata
+
+Embed arbitrary key-value metadata in the HAR output under the `_custom` extension field:
+
+```csharp
+var options = new CaptureOptions()
+    .WithCustomMetadata("environment", "staging")
+    .WithCustomMetadata("transaction_id", "txn-12345")
+    .WithCustomMetadata("test_name", "checkout_flow");
+
+using var capture = new HarCapture(driver, options);
+```
+
+### HAR Validation
+
+Validate HAR objects for structural correctness before saving:
+
+```csharp
+using Selenium.HarCapture.Serialization;
+
+var result = HarValidator.Validate(har);
+
+if (!result.IsValid)
+{
+    foreach (var error in result.Errors)
+        Console.WriteLine($"{error.Severity}: {error.Field} — {error.Message}");
+}
+
+// Validation modes: Strict, Standard (default), Lenient
+var strictResult = HarValidator.Validate(har, HarValidationMode.Strict);
+```
+
+### HAR Extension Fields (CDP)
+
+When using the CDP strategy, entries include additional extension fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `_initiator` | `HarInitiator` | Request origin — type, script URL, line number |
+| `_securityDetails` | `HarSecurityDetails` | TLS certificate — protocol, cipher, subject, issuer, validity |
+| `_requestBodySize` | `long` | On-wire request body bytes |
+| `_responseBodySize` | `long` | On-wire response body bytes (compressed) |
+| `_webSocketMessages` | `HarWebSocketMessage[]` | WebSocket frames (Chrome DevTools format) |
+
+Cache hit/miss information is populated in `HarCache.BeforeRequest` for 304 or cache-served responses.
+
 ## Disposal
 
 `HarCapture` implements both `IDisposable` and `IAsyncDisposable`:
@@ -436,8 +544,13 @@ The library provides a complete HAR 1.2 object model:
 | `HarQueryString` | Query parameter name-value pair |
 | `HarPostData` | POST data (MIME type, text, params) |
 | `HarParam` | Posted data parameter (name, value, fileName, contentType) |
-| `HarCache` | Cache usage info |
+| `HarCache` | Cache usage info (beforeRequest, afterRequest) |
 | `HarCacheEntry` | Detailed cache entry (expires, lastAccess, eTag, hitCount) |
+| `HarInitiator` | Request initiator (type, script URL, line number) — `_initiator` extension |
+| `HarSecurityDetails` | TLS certificate (protocol, cipher, subject, issuer, validity) — `_securityDetails` extension |
+| `HarCaptureProgress` | Progress event data (entry count, page ref, URL) |
+| `HarValidationResult` | Validation findings (errors, warnings, `IsValid`) |
+| `HarValidationError` | Single validation finding (field path, message, severity) |
 
 ## Project Structure
 
@@ -474,8 +587,9 @@ Selenium.HarCapture/
 │       └── Serialization/
 │           └── HarSerializer.cs           # JSON serialization
 └── tests/
-    ├── Selenium.HarCapture.Tests/             # Unit tests (309 tests)
-    └── Selenium.HarCapture.IntegrationTests/  # Integration tests (36 tests)
+    ├── Selenium.HarCapture.Tests/             # Unit tests (460 tests)
+    ├── Selenium.HarCapture.IntegrationTests/  # Integration tests (38 tests)
+    └── Selenium.HarCapture.StressTests/       # Stress tests (>500 request capture, dispose mid-capture)
 ```
 
 ## Running Tests
@@ -539,6 +653,12 @@ dotnet test
 - **TestWebServer**: ASP.NET Core minimal API on `127.0.0.1:0` (dynamic port). Provides endpoints: `/`, `/api/data`, `/api/large`, `/api/cookies`, `/with-fetch`, `/page2`, `/redirect`, `/api/slow`
 - **IntegrationTestBase**: Creates a fresh Chrome headless instance per test class. Provides `NavigateTo()`, `WaitForNetworkIdle()`, `StartCapture()`, `IsCdpCompatible()` helpers
 - **IntegrationTestCollection**: Shares `TestWebServer` across test classes via xUnit `ICollectionFixture`
+
+## Documentation
+
+- [Performance Tuning Guide](docs/performance-tuning.md) — optimize capture speed, memory usage, and CDP WebSocket contention
+- [Troubleshooting Guide](docs/troubleshooting.md) — diagnose and fix common issues (timeouts, memory growth, empty entries)
+- [Migration Guide: v0.2.x to v0.3.x](docs/migration-v02-v03.md) — breaking changes, behavioral changes, and new features
 
 ## Changelog
 

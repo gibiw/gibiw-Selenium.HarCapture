@@ -1,4 +1,6 @@
+using System.Text.RegularExpressions;
 using FluentAssertions;
+using Selenium.HarCapture;
 using Selenium.HarCapture.Capture;
 using Xunit;
 
@@ -78,5 +80,138 @@ public sealed class RedactionIntegrationTests
         options.SensitiveHeaders.Should().BeNull();
         options.SensitiveCookies.Should().BeNull();
         options.SensitiveQueryParams.Should().BeNull();
+    }
+
+    // =========================================================================
+    // CaptureOptions.WithSensitiveBodyPatterns Tests (Plan 19-01)
+    // =========================================================================
+
+    [Fact]
+    public void WithSensitiveBodyPatterns_SetsProperty()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithSensitiveBodyPatterns(HarPiiPatterns.Email, HarPiiPatterns.Ssn);
+
+        // Assert
+        options.SensitiveBodyPatterns.Should().NotBeNull();
+        options.SensitiveBodyPatterns.Should().HaveCount(2);
+        options.SensitiveBodyPatterns.Should().Contain(HarPiiPatterns.Email);
+        options.SensitiveBodyPatterns.Should().Contain(HarPiiPatterns.Ssn);
+    }
+
+    [Fact]
+    public void SensitiveBodyPatterns_DefaultNull()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.SensitiveBodyPatterns.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithSensitiveBodyPatterns_FluentChaining_Works()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithSensitiveHeaders("Authorization")
+            .WithSensitiveBodyPatterns(HarPiiPatterns.CreditCard);
+
+        // Assert
+        options.SensitiveHeaders.Should().Contain("Authorization");
+        options.SensitiveBodyPatterns.Should().Contain(HarPiiPatterns.CreditCard);
+    }
+
+    // =========================================================================
+    // CaptureOptions.WithMaxWebSocketFramesPerConnection Tests (Plan 19-03)
+    // =========================================================================
+
+    [Fact]
+    public void MaxWebSocketFramesPerConnection_Default_IsZero()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.MaxWebSocketFramesPerConnection.Should().Be(0);
+    }
+
+    [Fact]
+    public void WithMaxWebSocketFramesPerConnection_SetsValue()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithMaxWebSocketFramesPerConnection(200);
+
+        // Assert
+        options.MaxWebSocketFramesPerConnection.Should().Be(200);
+    }
+
+    [Fact]
+    public void WithMaxWebSocketFramesPerConnection_Returnsself_ForFluentChaining()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions()
+            .WithSensitiveBodyPatterns(HarPiiPatterns.Email)
+            .WithMaxWebSocketFramesPerConnection(50);
+
+        // Assert
+        options.SensitiveBodyPatterns.Should().Contain(HarPiiPatterns.Email);
+        options.MaxWebSocketFramesPerConnection.Should().Be(50);
+    }
+
+    // =========================================================================
+    // HarPiiPatterns Tests (Plan 19-01)
+    // =========================================================================
+
+    [Fact]
+    public void HarPiiPatterns_CreditCard_MatchesVisa()
+    {
+        // Arrange
+        var regex = new Regex(HarPiiPatterns.CreditCard);
+
+        // Act & Assert
+        regex.IsMatch("4111111111111111").Should().BeTrue();
+    }
+
+    [Fact]
+    public void HarPiiPatterns_Email_MatchesStandard()
+    {
+        // Arrange
+        var regex = new Regex(HarPiiPatterns.Email);
+
+        // Act & Assert
+        regex.IsMatch("user@example.com").Should().BeTrue();
+    }
+
+    [Fact]
+    public void HarPiiPatterns_Ssn_MatchesDashed()
+    {
+        // Arrange
+        var regex = new Regex(HarPiiPatterns.Ssn);
+
+        // Act & Assert
+        regex.IsMatch("123-45-6789").Should().BeTrue();
+    }
+
+    [Fact]
+    public void HarPiiPatterns_Phone_MatchesUS()
+    {
+        // Arrange
+        var regex = new Regex(HarPiiPatterns.Phone);
+
+        // Act & Assert
+        regex.IsMatch("(555) 123-4567").Should().BeTrue();
+    }
+
+    [Fact]
+    public void HarPiiPatterns_IpAddress_MatchesIPv4()
+    {
+        // Arrange
+        var regex = new Regex(HarPiiPatterns.IpAddress);
+
+        // Act & Assert
+        regex.IsMatch("192.168.1.1").Should().BeTrue();
     }
 }

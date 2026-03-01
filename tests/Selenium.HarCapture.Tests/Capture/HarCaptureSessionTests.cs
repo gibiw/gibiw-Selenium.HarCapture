@@ -12,6 +12,7 @@ using OpenQA.Selenium.DevTools;
 using Selenium.HarCapture.Capture;
 using Selenium.HarCapture.Capture.Strategies;
 using Selenium.HarCapture.Models;
+using Selenium.HarCapture.Serialization;
 using Selenium.HarCapture.Tests.Fixtures;
 using Xunit;
 
@@ -653,6 +654,210 @@ public sealed class HarCaptureSessionTests
         har.Log.Pages[0].PageTimings.OnLoad.Should().BeNull();
     }
 
+    // -------------------------------------------------------------------------
+    // Pause / Resume / IsPaused / EntryWritten tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void Pause_WhenCapturing_DropsNewEntries()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/before"), "req1");
+
+        // Act
+        session.Pause();
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/during-pause"), "req2");
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Entries.Should().HaveCount(1, "entry during pause should be dropped");
+        har.Log.Entries[0].Request.Url.Should().Be("https://example.com/before");
+    }
+
+    [Fact]
+    public void Resume_AfterPause_AcceptsNewEntries()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act
+        session.Pause();
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/dropped"), "req1");
+        session.Resume();
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/after-resume"), "req2");
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Entries.Should().HaveCount(1, "entry after resume should be accepted");
+        har.Log.Entries[0].Request.Url.Should().Be("https://example.com/after-resume");
+    }
+
+    [Fact]
+    public void Pause_CalledTwice_DoesNotThrow()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act & Assert
+        Action act = () =>
+        {
+            session.Pause();
+            session.Pause();
+        };
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Resume_CalledTwice_DoesNotThrow()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+        session.Pause();
+
+        // Act & Assert
+        Action act = () =>
+        {
+            session.Resume();
+            session.Resume();
+        };
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Resume_WhenNotPaused_DoesNotThrow()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Act & Assert — Resume without prior Pause
+        Action act = () => session.Resume();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void IsPaused_ReflectsState()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        // Assert initial state
+        session.IsPaused.Should().BeFalse("capture starts unpaused");
+
+        // Act & Assert after Pause
+        session.Pause();
+        session.IsPaused.Should().BeTrue("IsPaused should be true after Pause()");
+
+        // Act & Assert after Resume
+        session.Resume();
+        session.IsPaused.Should().BeFalse("IsPaused should be false after Resume()");
+    }
+
+    [Fact]
+    public void EntryWritten_FiresAfterWrite()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start("page1", "Home");
+
+        HarCaptureProgress? receivedProgress = null;
+        session.EntryWritten += (_, p) => receivedProgress = p;
+
+        // Act
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api"), "req1");
+
+        // Assert
+        receivedProgress.Should().NotBeNull("EntryWritten should fire after entry write");
+        receivedProgress!.EntryCount.Should().Be(1);
+        receivedProgress.EntryUrl.Should().Be("https://example.com/api");
+        receivedProgress.CurrentPageRef.Should().Be("page1");
+    }
+
+    [Fact]
+    public void EntryWritten_NotFired_WhenPaused()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        int fireCount = 0;
+        session.EntryWritten += (_, _) => fireCount++;
+
+        // Act
+        session.Pause();
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/dropped"), "req1");
+
+        // Assert
+        fireCount.Should().Be(0, "EntryWritten must not fire when paused");
+    }
+
+    [Fact]
+    public void EntryWritten_CountIncrementsAcrossEntries()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        var progressList = new System.Collections.Generic.List<HarCaptureProgress>();
+        session.EntryWritten += (_, p) => progressList.Add(p);
+
+        // Act
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/1"), "req1");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/2"), "req2");
+        strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/3"), "req3");
+
+        // Assert
+        progressList.Should().HaveCount(3);
+        progressList[0].EntryCount.Should().Be(1);
+        progressList[1].EntryCount.Should().Be(2);
+        progressList[2].EntryCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void EntryWritten_FiredOutsideLock_NoDeadlock()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+        session.Start();
+
+        bool deadlockDetected = false;
+
+        // If EntryWritten fires inside the lock, calling GetHar() from the handler
+        // would deadlock (GetHar also takes the same lock).
+        session.EntryWritten += (_, _) =>
+        {
+            // This call will deadlock if the event is fired inside the lock
+            var completed = Task.Run(() => session.GetHar()).Wait(TimeSpan.FromSeconds(5));
+            if (!completed)
+                deadlockDetected = true;
+        };
+
+        // Act — simulate entry, event fires, handler calls GetHar()
+        var task = Task.Run(() =>
+            strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/deadlock-test"), "req1"));
+        var finished = task.Wait(TimeSpan.FromSeconds(10));
+
+        // Assert
+        finished.Should().BeTrue("SimulateEntry should complete without deadlock");
+        deadlockDetected.Should().BeFalse("GetHar() in handler should not deadlock");
+    }
+
     private class MockCapabilitiesDriver : IWebDriver, IHasCapabilities
     {
         public ICapabilities Capabilities { get; set; } = null!;
@@ -734,5 +939,198 @@ public sealed class HarCaptureSessionTests
         {
             throw new NotImplementedException();
         }
+    }
+
+    // ========== CustomMetadata and MaxOutputFileSize Tests (Phase 20-02) ==========
+
+    [Fact]
+    public void HarCaptureSession_CustomMetadata_Null_NoCustomField()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var options = new CaptureOptions(); // no CustomMetadata set
+        var session = new HarCaptureSession(strategy, options);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Custom.Should().BeNull("no CustomMetadata was configured");
+    }
+
+    [Fact]
+    public void HarCaptureSession_CustomMetadata_PopulatesHarLog()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var options = new CaptureOptions()
+            .WithCustomMetadata("env", "prod")
+            .WithCustomMetadata("txId", "abc-123");
+        var session = new HarCaptureSession(strategy, options);
+
+        // Act
+        session.Start();
+        var har = session.GetHar();
+
+        // Assert
+        har.Log.Custom.Should().NotBeNull();
+        har.Log.Custom!.Should().ContainKey("env");
+        har.Log.Custom!.Should().ContainKey("txId");
+        // After JSON round-trip (deep clone), values come back as JsonElement — compare as string
+        har.Log.Custom["env"].ToString().Should().Contain("prod");
+        har.Log.Custom["txId"].ToString().Should().Contain("abc-123");
+    }
+
+    [Fact]
+    public async Task HarCaptureSession_StopAsync_LogsTruncation_AndReturnsCleanly()
+    {
+        // Arrange
+        var tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"truncation_test_{Guid.NewGuid():N}.har");
+        try
+        {
+            var strategy = new MockCaptureStrategy();
+            // Use very small max size to force truncation quickly
+            var options = new CaptureOptions()
+                .WithOutputFile(tempFile)
+                .WithMaxOutputFileSize(500);
+            var session = new HarCaptureSession(strategy, options);
+
+            // Act
+            await session.StartAsync();
+
+            // Write enough entries to exceed the file size limit
+            for (int i = 0; i < 30; i++)
+            {
+                strategy.SimulateEntry(HarEntryFactory.CreateTestEntry($"https://example.com/entry/{i}"), $"req{i}");
+            }
+
+            // StopAsync must NOT throw even when truncated
+            Har har = null!;
+            var act = async () => { har = await session.StopAsync(); };
+            await act.Should().NotThrowAsync("StopAsync must return cleanly even when truncated");
+
+            // File must still be valid JSON
+            var fileContent = System.IO.File.ReadAllText(tempFile);
+            var loadedHar = HarSerializer.Deserialize(fileContent);
+            loadedHar.Log.Should().NotBeNull();
+        }
+        finally
+        {
+            if (System.IO.File.Exists(tempFile))
+                System.IO.File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task HarCaptureSession_StreamingMode_Custom_InFooter()
+    {
+        // Arrange
+        var tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"custom_footer_test_{Guid.NewGuid():N}.har");
+        try
+        {
+            var strategy = new MockCaptureStrategy();
+            var options = new CaptureOptions()
+                .WithOutputFile(tempFile)
+                .WithCustomMetadata("env", "test-env")
+                .WithCustomMetadata("buildId", "42");
+            var session = new HarCaptureSession(strategy, options);
+
+            // Act
+            await session.StartAsync();
+            strategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api"), "req1");
+            await session.StopAsync();
+
+            // Assert: _custom must appear in the streamed output file
+            var fileContent = System.IO.File.ReadAllText(tempFile);
+            fileContent.Should().Contain("_custom");
+            fileContent.Should().Contain("env");
+            fileContent.Should().Contain("test-env");
+        }
+        finally
+        {
+            if (System.IO.File.Exists(tempFile))
+                System.IO.File.Delete(tempFile);
+        }
+    }
+
+    // ========== Body Size Preservation Tests (Phase 20-03) ==========
+
+    [Fact]
+    public void HarCaptureSession_OnEntryCompleted_PreservesBodySizes()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        session.Start("page1", "Test Page");
+
+        // Create an entry with body size extension fields
+        var entryWithSizes = new HarEntry
+        {
+            StartedDateTime = DateTimeOffset.UtcNow,
+            Time = 100,
+            Request = new HarRequest
+            {
+                Method = "POST",
+                Url = "https://example.com/api",
+                HttpVersion = "HTTP/1.1",
+                Cookies = new List<HarCookie>(),
+                Headers = new List<HarHeader>(),
+                QueryString = new List<HarQueryString>(),
+                HeadersSize = -1,
+                BodySize = 100
+            },
+            Response = new HarResponse
+            {
+                Status = 200,
+                StatusText = "OK",
+                HttpVersion = "HTTP/1.1",
+                Cookies = new List<HarCookie>(),
+                Headers = new List<HarHeader>(),
+                Content = new HarContent { Size = 200, MimeType = "application/json" },
+                RedirectURL = "",
+                HeadersSize = -1,
+                BodySize = 200
+            },
+            Cache = new HarCache(),
+            Timings = new HarTimings { Send = 1, Wait = 50, Receive = 49 },
+            RequestBodySize = 100,
+            ResponseBodySize = 200
+        };
+
+        // Act — simulate the entry arriving (triggers OnEntryCompleted, which will copy PageRef and must preserve body sizes)
+        strategy.SimulateEntry(entryWithSizes, "req1");
+
+        var har = session.Stop();
+
+        // Assert — body sizes survive the PageRef copy in OnEntryCompleted
+        var capturedEntry = har.Log.Entries!.Should().ContainSingle().Subject;
+        capturedEntry.RequestBodySize.Should().Be(100, "RequestBodySize must survive OnEntryCompleted PageRef copy");
+        capturedEntry.ResponseBodySize.Should().Be(200, "ResponseBodySize must survive OnEntryCompleted PageRef copy");
+        capturedEntry.PageRef.Should().Be("page1", "PageRef must be set by OnEntryCompleted");
+    }
+
+    [Fact]
+    public void HarCaptureSession_OnEntryCompleted_ZeroBodySizes_OmittedFromJson()
+    {
+        // Arrange
+        var strategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(strategy);
+
+        session.Start();
+
+        // Entry with no body sizes (GET request)
+        var entry = HarEntryFactory.CreateTestEntry();  // BodySize = -1 (not 0)
+        strategy.SimulateEntry(entry, "req1");
+
+        var har = session.Stop();
+
+        // Act — serialize the HAR
+        var json = Selenium.HarCapture.Serialization.HarSerializer.Serialize(har);
+
+        // Assert — zero body sizes should not appear in JSON
+        json.Should().NotContain("_requestBodySize", "zero RequestBodySize should be omitted via WhenWritingDefault");
+        json.Should().NotContain("_responseBodySize", "zero ResponseBodySize should be omitted via WhenWritingDefault");
     }
 }

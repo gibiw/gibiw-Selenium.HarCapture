@@ -37,11 +37,28 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
     private string? _finalOutputFilePath;
     private bool _isCapturing;
     private bool _disposed;
+    private volatile bool _isPaused;
 
     /// <summary>
     /// Gets a value indicating whether capture is currently active.
     /// </summary>
     public bool IsCapturing => _isCapturing;
+
+    /// <summary>
+    /// Gets a value indicating whether capture is currently paused.
+    /// When paused, new entries from the network are dropped rather than recorded.
+    /// </summary>
+    public bool IsPaused => _isPaused;
+
+    /// <summary>
+    /// Fires after each HAR entry has been written, outside the internal lock.
+    /// The event argument contains the total entry count, current page reference, and entry URL.
+    /// </summary>
+    /// <remarks>
+    /// Handlers may safely call <see cref="GetHar"/> from within this event — the event is raised
+    /// outside the internal lock to prevent deadlocks.
+    /// </remarks>
+    public event EventHandler<HarCaptureProgress>? EntryWritten;
 
     /// <summary>
     /// Gets the name of the active capture strategy (e.g., "CDP", "INetwork").
@@ -171,6 +188,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        CaptureOptionsValidator.ValidateAndThrow(_options);
+
         _logger?.Log("HarCapture", $"StartAsync: strategy={_strategy.StrategyName}, captureTypes={_options.CaptureTypes}, maxBodySize={_options.MaxResponseBodySize}");
         _logger?.Log("HarCapture", $"URL filtering: include={_options.UrlIncludePatterns?.Count ?? 0}, exclude={_options.UrlExcludePatterns?.Count ?? 0}");
 
@@ -187,7 +206,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                 _options.OutputFilePath,
                 _har.Log.Version, _har.Log.Creator,
                 _har.Log.Browser, _har.Log.Comment,
-                _har.Log.Pages, _logger);
+                _har.Log.Pages, _logger,
+                _options.CustomMetadata, _options.MaxOutputFileSize);
             _logger?.Log("HarCapture", $"Streaming mode: {_options.OutputFilePath}");
         }
 
@@ -251,6 +271,13 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
             _streamWriter.Complete();
             await _streamWriter.DisposeAsync().ConfigureAwait(false);
             _logger?.Log("HarCapture", $"Streaming completed: {_streamWriter.Count} entries, {_har.Log.Pages?.Count ?? 0} pages");
+
+            // Log truncation notice (read IsTruncated before nulling the writer)
+            if (_streamWriter.IsTruncated)
+            {
+                _logger?.Log("HarCapture", $"Output file was truncated — MaxOutputFileSize limit exceeded after {_streamWriter.Count} entries");
+            }
+
             _streamWriter = null;
 
             // Post-finalization compression: compress the uncompressed HAR file to .gz
@@ -372,7 +399,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                         Browser = _har.Log.Browser,
                         Pages = pages,
                         Entries = new List<HarEntry>(),
-                        Comment = _har.Log.Comment
+                        Comment = _har.Log.Comment,
+                        Custom = _har.Log.Custom
                     }
                 };
             }
@@ -390,13 +418,34 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                         Browser = _har.Log.Browser,
                         Pages = pages,
                         Entries = entries,
-                        Comment = _har.Log.Comment
+                        Comment = _har.Log.Comment,
+                        Custom = _har.Log.Custom
                     }
                 };
             }
 
             _currentPageRef = pageRef;
         }
+    }
+
+    /// <summary>
+    /// Pauses capture. Entries that arrive while paused are dropped (not queued).
+    /// Idempotent — calling Pause() multiple times does not throw.
+    /// </summary>
+    public void Pause()
+    {
+        _isPaused = true;
+        _logger?.Log("HarCapture", "Capture paused — new entries will be dropped");
+    }
+
+    /// <summary>
+    /// Resumes capture after a pause. Entries that arrive after this call are recorded normally.
+    /// Idempotent — calling Resume() multiple times (or without a prior Pause()) does not throw.
+    /// </summary>
+    public void Resume()
+    {
+        _isPaused = false;
+        _logger?.Log("HarCapture", "Capture resumed");
     }
 
     /// <summary>
@@ -435,7 +484,8 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                         Browser = _har.Log.Browser,
                         Pages = _har.Log.Pages != null ? new List<HarPage>(_har.Log.Pages) : null,
                         Entries = new List<HarEntry>(),
-                        Comment = _har.Log.Comment
+                        Comment = _har.Log.Comment,
+                        Custom = _har.Log.Custom
                     }
                 };
             }
@@ -530,7 +580,10 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                     },
                     Browser = browser,
                     Pages = pages,
-                    Entries = new List<HarEntry>()
+                    Entries = new List<HarEntry>(),
+                    Custom = _options.CustomMetadata != null
+                        ? new Dictionary<string, object>(_options.CustomMetadata)
+                        : null
                 }
             };
 
@@ -555,6 +608,15 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
             return;
         }
 
+        // Drop entry if capture is paused (checked outside lock — volatile read is sufficient)
+        if (_isPaused)
+        {
+            _logger?.Log("HarCapture", $"Entry dropped (paused): {entry.Request.Url}");
+            return;
+        }
+
+        HarCaptureProgress? progress = null;
+
         lock (_lock)
         {
             // Create new entry with PageRef set if we have a current page
@@ -572,7 +634,13 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                     PageRef = _currentPageRef,
                     ServerIPAddress = entry.ServerIPAddress,
                     Connection = entry.Connection,
-                    Comment = entry.Comment
+                    Comment = entry.Comment,
+                    ResourceType = entry.ResourceType,
+                    WebSocketMessages = entry.WebSocketMessages,
+                    RequestBodySize = entry.RequestBodySize,
+                    ResponseBodySize = entry.ResponseBodySize,
+                    Initiator = entry.Initiator,
+                    SecurityDetails = entry.SecurityDetails
                 };
             }
 
@@ -580,6 +648,12 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
             {
                 _streamWriter.WriteEntry(entryToAdd);
                 _logger?.Log("HarCapture", $"Entry streamed: pageRef={_currentPageRef ?? "(none)"}, total={_streamWriter.Count}");
+                progress = new HarCaptureProgress
+                {
+                    EntryCount = _streamWriter.Count,
+                    CurrentPageRef = _currentPageRef,
+                    EntryUrl = entryToAdd.Request.Url
+                };
             }
             else
             {
@@ -598,13 +672,23 @@ public sealed class HarCaptureSession : IDisposable, IAsyncDisposable
                         Browser = _har.Log.Browser,
                         Pages = _har.Log.Pages,
                         Entries = entries,
-                        Comment = _har.Log.Comment
+                        Comment = _har.Log.Comment,
+                        Custom = _har.Log.Custom
                     }
                 };
 
                 _logger?.Log("HarCapture", $"Entry added: pageRef={_currentPageRef ?? "(none)"}, totalEntries={entries.Count}");
+                progress = new HarCaptureProgress
+                {
+                    EntryCount = entries.Count,
+                    CurrentPageRef = _currentPageRef,
+                    EntryUrl = entryToAdd.Request.Url
+                };
             }
         }
+
+        // Fire EntryWritten OUTSIDE the lock to prevent deadlock when handlers call GetHar()
+        EntryWritten?.Invoke(this, progress);
     }
 
     /// <summary>

@@ -74,7 +74,7 @@ internal static class CdpAdapterFactory
             try
             {
                 logger?.Log("CDP", $"Trying V{version}: {domainsType.FullName}");
-                var adapter = new ReflectiveCdpNetworkAdapter(session, domainsType);
+                var adapter = new ReflectiveCdpNetworkAdapter(session, domainsType, logger);
                 logger?.Log("CDP", $"V{version}: adapter created successfully");
                 return adapter;
             }

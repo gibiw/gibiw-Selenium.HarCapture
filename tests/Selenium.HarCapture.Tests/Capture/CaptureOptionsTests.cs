@@ -285,4 +285,77 @@ public sealed class CaptureOptionsTests
         options.ResponseBodyScope.Should().Be(ResponseBodyScope.PagesAndApi);
         options.ResponseBodyMimeFilter.Should().Equal("image/png", "image/svg+xml");
     }
+
+    // ── MaxOutputFileSize ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void CaptureOptions_WithMaxOutputFileSize_SetsProperty()
+    {
+        // Arrange
+        var options = new CaptureOptions();
+
+        // Act
+        var result = options.WithMaxOutputFileSize(1024);
+
+        // Assert
+        options.MaxOutputFileSize.Should().Be(1024);
+        result.Should().BeSameAs(options);
+    }
+
+    [Fact]
+    public void MaxOutputFileSize_DefaultIsZero()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.MaxOutputFileSize.Should().Be(0);
+    }
+
+    // ── CustomMetadata ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void CaptureOptions_WithCustomMetadata_AddsToDict()
+    {
+        // Arrange
+        var options = new CaptureOptions();
+
+        // Act
+        var result = options.WithCustomMetadata("env", "prod");
+
+        // Assert
+        options.CustomMetadata.Should().NotBeNull();
+        options.CustomMetadata.Should().ContainKey("env");
+        options.CustomMetadata!["env"].Should().Be("prod");
+        result.Should().BeSameAs(options);
+    }
+
+    [Fact]
+    public void CaptureOptions_WithCustomMetadata_Chainable()
+    {
+        // Arrange
+        var options = new CaptureOptions();
+
+        // Act
+        options
+            .WithCustomMetadata("env", "staging")
+            .WithCustomMetadata("txId", "abc-123")
+            .WithCustomMetadata("retries", 3);
+
+        // Assert
+        options.CustomMetadata.Should().HaveCount(3);
+        options.CustomMetadata!["env"].Should().Be("staging");
+        options.CustomMetadata["txId"].Should().Be("abc-123");
+        options.CustomMetadata["retries"].Should().Be(3);
+    }
+
+    [Fact]
+    public void CustomMetadata_DefaultIsNull()
+    {
+        // Arrange & Act
+        var options = new CaptureOptions();
+
+        // Assert
+        options.CustomMetadata.Should().BeNull();
+    }
 }

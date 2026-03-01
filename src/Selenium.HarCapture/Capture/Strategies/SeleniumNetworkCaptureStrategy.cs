@@ -71,7 +71,8 @@ internal sealed class SeleniumNetworkCaptureStrategy : INetworkCaptureStrategy
         _redactor = new SensitiveDataRedactor(
             options.SensitiveHeaders,
             options.SensitiveCookies,
-            options.SensitiveQueryParams);
+            options.SensitiveQueryParams,
+            options.SensitiveBodyPatterns);
 
         // Initialize MIME type matcher for body filtering (HAR-04 — parity with CDP strategy)
         _mimeMatcher = MimeTypeMatcher.FromScope(options.ResponseBodyScope, options.ResponseBodyMimeFilter);

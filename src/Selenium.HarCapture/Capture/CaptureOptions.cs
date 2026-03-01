@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 
 namespace Selenium.HarCapture.Capture;
 
@@ -212,6 +213,19 @@ public sealed class CaptureOptions
     public IReadOnlyList<string>? SensitiveQueryParams { get; set; }
 
     /// <summary>
+    /// Gets or sets regex patterns for redacting sensitive content from response/request bodies.
+    /// When set, matching content is replaced with "[REDACTED]" at capture time.
+    /// Each pattern is applied with a 100ms timeout and a 512 KB body size gate for ReDoS protection.
+    /// Default is null (no body content is redacted).
+    /// </summary>
+    /// <remarks>
+    /// Use <see cref="HarPiiPatterns"/> for built-in presets (credit cards, emails, SSNs, phone numbers, IPv4 addresses).
+    /// Patterns are linear-time by design. Avoid nested quantifiers to prevent catastrophic backtracking.
+    /// Bodies exceeding 512 KB are skipped entirely. Base64-encoded bodies are not redacted.
+    /// </remarks>
+    public IReadOnlyList<string>? SensitiveBodyPatterns { get; set; }
+
+    /// <summary>
     /// Sets the output file path for streaming HAR capture.
     /// Entries will be written incrementally to the file, keeping it always valid.
     /// </summary>
@@ -336,6 +350,95 @@ public sealed class CaptureOptions
     public CaptureOptions WithSensitiveQueryParams(params string[] paramPatterns)
     {
         SensitiveQueryParams = paramPatterns;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the maximum number of WebSocket frames to keep per connection.
+    /// When set to a positive value, oldest frames are dropped when the limit is reached (oldest-first eviction).
+    /// Default is 0 (unlimited — all frames are kept).
+    /// </summary>
+    /// <remarks>
+    /// Use this to cap memory usage for long-lived WebSocket connections that generate many frames.
+    /// A value of 0 means unlimited (all frames retained). Negative values are invalid and will be
+    /// rejected at <c>StartAsync()</c> time by <see cref="Internal.CaptureOptionsValidator"/>.
+    /// </remarks>
+    public int MaxWebSocketFramesPerConnection { get; set; } = 0;
+
+    /// <summary>
+    /// Sets regex patterns for redacting sensitive content from response/request bodies.
+    /// Matching content is replaced with "[REDACTED]" at capture time.
+    /// Each pattern runs with a 100ms timeout and a 512 KB body size gate for ReDoS protection.
+    /// </summary>
+    /// <param name="patterns">
+    /// Regex patterns to match and redact (e.g., <see cref="HarPiiPatterns.Email"/>, <see cref="HarPiiPatterns.CreditCard"/>).
+    /// Patterns must be valid .NET regex strings. Avoid nested quantifiers to prevent backtracking.
+    /// </param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithSensitiveBodyPatterns(params string[] patterns)
+    {
+        SensitiveBodyPatterns = patterns;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum number of WebSocket frames to keep per connection.
+    /// When the limit is reached, the oldest frames are dropped (oldest-first eviction).
+    /// </summary>
+    /// <param name="maxFrames">Maximum frames per connection. Use 0 for unlimited. Negative values are invalid.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithMaxWebSocketFramesPerConnection(int maxFrames)
+    {
+        MaxWebSocketFramesPerConnection = maxFrames;
+        return this;
+    }
+
+    /// <summary>
+    /// Gets or sets the maximum size in bytes for the output HAR file in streaming mode.
+    /// When the file exceeds this limit, streaming is aborted and no further entries are written.
+    /// Default is 0 (unlimited). Requires <see cref="OutputFilePath"/> to be set.
+    /// </summary>
+    /// <remarks>
+    /// When the limit is exceeded, the file remains valid JSON — the last entry that pushed past
+    /// the limit is fully written with a valid footer. Subsequent entries are silently dropped.
+    /// <see cref="StopAsync"/> returns cleanly without throwing.
+    /// A value of 0 means no limit (all entries are written). Negative values are invalid.
+    /// </remarks>
+    public long MaxOutputFileSize { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets user-provided key-value metadata to embed in the HAR file under the "_custom" key.
+    /// Default is null (no custom metadata).
+    /// </summary>
+    /// <remarks>
+    /// Values must be JSON-primitive-compatible (string, int, long, double, bool).
+    /// Use <see cref="WithCustomMetadata"/> for fluent configuration.
+    /// </remarks>
+    public IDictionary<string, object>? CustomMetadata { get; set; }
+
+    /// <summary>
+    /// Sets the maximum size in bytes for the output HAR file in streaming mode.
+    /// When the file exceeds this limit, streaming is aborted cleanly.
+    /// </summary>
+    /// <param name="bytes">Maximum file size in bytes. Use 0 for unlimited. Negative values are invalid.</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithMaxOutputFileSize(long bytes)
+    {
+        MaxOutputFileSize = bytes;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a key-value entry to the custom metadata dictionary embedded in the HAR file.
+    /// Multiple calls accumulate entries; calling with the same key overwrites the previous value.
+    /// </summary>
+    /// <param name="key">The metadata key (e.g., "env", "transactionId").</param>
+    /// <param name="value">The metadata value. Must be JSON-primitive-compatible (string, int, long, double, bool).</param>
+    /// <returns>The current instance for method chaining.</returns>
+    public CaptureOptions WithCustomMetadata(string key, object value)
+    {
+        CustomMetadata ??= new Dictionary<string, object>();
+        ((Dictionary<string, object>)CustomMetadata)[key] = value;
         return this;
     }
 }

@@ -90,4 +90,38 @@ public sealed class HarEntry
     [JsonPropertyName("_webSocketMessages")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IList<HarWebSocketMessage>? WebSocketMessages { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the actual bytes transferred for the request body.
+    /// Populated from CDP postData length. Omitted when 0 (unknown/none).
+    /// </summary>
+    [JsonPropertyName("_requestBodySize")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long RequestBodySize { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the actual bytes transferred for the response body (on-wire compressed size).
+    /// Populated from CDP Network.Response.encodedDataLength. Omitted when 0 (unknown/none).
+    /// </summary>
+    [JsonPropertyName("_responseBodySize")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long ResponseBodySize { get; init; }
+
+    /// <summary>
+    /// Gets or initializes the initiator of this network request.
+    /// Vendor extension field (_initiator) populated from CDP requestWillBeSent event.
+    /// Null (and omitted from JSON) when initiator data is unavailable.
+    /// </summary>
+    [JsonPropertyName("_initiator")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HarInitiator? Initiator { get; init; }
+
+    /// <summary>
+    /// Gets or initializes TLS security details for HTTPS responses.
+    /// Vendor extension field (_securityDetails) populated from CDP Network.SecurityDetails.
+    /// Null (and omitted from JSON) for HTTP responses or when SecurityDetails is not available.
+    /// </summary>
+    [JsonPropertyName("_securityDetails")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HarSecurityDetails? SecurityDetails { get; init; }
 }

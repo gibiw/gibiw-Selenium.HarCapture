@@ -574,4 +574,155 @@ public sealed class HarCaptureTests
         act.Should().NotThrow();
     }
 
+    // -------------------------------------------------------------------------
+    // Pause / Resume / IsPaused / EntryWritten delegation tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void HarCapture_Pause_DelegatesToSession()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Start();
+
+        // Act
+        capture.Pause();
+
+        // Assert — session state reflects the pause
+        capture.IsPaused.Should().BeTrue("Pause() should delegate to session");
+    }
+
+    [Fact]
+    public void HarCapture_Resume_DelegatesToSession()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Start();
+        capture.Pause();
+
+        // Act
+        capture.Resume();
+
+        // Assert — session state reflects the resume
+        capture.IsPaused.Should().BeFalse("Resume() should delegate to session");
+    }
+
+    [Fact]
+    public void HarCapture_IsPaused_DelegatesToSession()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Start();
+
+        // Assert initial state
+        capture.IsPaused.Should().BeFalse("IsPaused should be false initially");
+
+        // Pause and check
+        capture.Pause();
+        capture.IsPaused.Should().BeTrue("IsPaused should be true after Pause()");
+
+        // Resume and check
+        capture.Resume();
+        capture.IsPaused.Should().BeFalse("IsPaused should be false after Resume()");
+    }
+
+    [Fact]
+    public void HarCapture_IsPaused_FalseWhenNoSession()
+    {
+        // Arrange — no session set (simulate null session case via disposed capture)
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+
+        // Act — dispose nulls the session
+        capture.Dispose();
+
+        // Assert — IsPaused returns false when no session
+        capture.IsPaused.Should().BeFalse("IsPaused should return false when session is null");
+    }
+
+    [Fact]
+    public void HarCapture_EntryWritten_SurfacesSessionEvent()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Start("page1", "Home");
+
+        HarCaptureProgress? receivedProgress = null;
+        capture.EntryWritten += (_, p) => receivedProgress = p;
+
+        // Act — fire an entry via the strategy
+        mockStrategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/api"), "req1");
+
+        // Assert
+        receivedProgress.Should().NotBeNull("EntryWritten event should surface from session");
+        receivedProgress!.EntryCount.Should().Be(1);
+        receivedProgress.EntryUrl.Should().Be("https://example.com/api");
+    }
+
+    [Fact]
+    public void HarCapture_Pause_ThrowsWhenDisposed()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Dispose();
+
+        // Act & Assert
+        Action act = () => capture.Pause();
+        act.Should().Throw<ObjectDisposedException>()
+            .WithMessage("*HarCapture*");
+    }
+
+    [Fact]
+    public void HarCapture_Resume_ThrowsWhenDisposed()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Dispose();
+
+        // Act & Assert
+        Action act = () => capture.Resume();
+        act.Should().Throw<ObjectDisposedException>()
+            .WithMessage("*HarCapture*");
+    }
+
+    [Fact]
+    public void HarCapture_EntryWritten_NoDeadlock()
+    {
+        // Arrange
+        var mockStrategy = new MockCaptureStrategy();
+        var session = new HarCaptureSession(mockStrategy);
+        var capture = new HarCapture(session);
+        capture.Start();
+
+        bool deadlockDetected = false;
+        capture.EntryWritten += (_, _) =>
+        {
+            var completed = Task.Run(() => capture.GetHar()).Wait(TimeSpan.FromSeconds(5));
+            if (!completed)
+                deadlockDetected = true;
+        };
+
+        // Act
+        var task = Task.Run(() =>
+            mockStrategy.SimulateEntry(HarEntryFactory.CreateTestEntry("https://example.com/deadlock-test"), "req1"));
+        var finished = task.Wait(TimeSpan.FromSeconds(10));
+
+        // Assert
+        finished.Should().BeTrue("SimulateEntry should complete without deadlock");
+        deadlockDetected.Should().BeFalse("GetHar() in handler should not deadlock");
+    }
+
 }

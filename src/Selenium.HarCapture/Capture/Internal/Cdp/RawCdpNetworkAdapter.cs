@@ -135,13 +135,25 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
             redirectResponse = ParseResponse(redirectProp);
         }
 
+        CdpInitiatorInfo? initiator = null;
+        if (data.TryGetProperty("initiator", out var initiatorEl) && initiatorEl.ValueKind == JsonValueKind.Object)
+        {
+            var typeVal = initiatorEl.TryGetProperty("type", out var tProp) ? tProp.GetString() ?? "other" : "other";
+            var url = initiatorEl.TryGetProperty("url", out var uProp) ? uProp.GetString() : null;
+            double? lineNum = initiatorEl.TryGetProperty("lineNumber", out var lProp) && lProp.ValueKind == JsonValueKind.Number
+                ? lProp.GetDouble()
+                : (double?)null;
+            initiator = new CdpInitiatorInfo { Type = typeVal, Url = url, LineNumber = lineNum };
+        }
+
         RequestWillBeSent?.Invoke(new CdpRequestWillBeSentData
         {
             RequestId = requestId,
             WallTime = wallTime,
             Timestamp = timestamp,
             Request = ParseRequest(request),
-            RedirectResponse = redirectResponse
+            RedirectResponse = redirectResponse,
+            Initiator = initiator
         });
     }
 
@@ -305,6 +317,38 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
             timing = ParseTiming(timingEl);
         }
 
+        // Extract encodedDataLength — CDP Network.Response.encodedDataLength (may be long or double in JSON)
+        long encodedDataLength = 0;
+        if (response.TryGetProperty("encodedDataLength", out var edlProp))
+        {
+            encodedDataLength = edlProp.ValueKind switch
+            {
+                JsonValueKind.Number => edlProp.TryGetInt64(out var l) ? l : (long)edlProp.GetDouble(),
+                _ => 0
+            };
+        }
+
+        // Extract fromDiskCache — bool flag indicating cache hit
+        bool fromDiskCache = response.TryGetProperty("fromDiskCache", out var fdcProp) && fdcProp.ValueKind == JsonValueKind.True;
+
+        // Extract fromServiceWorker — bool flag indicating service worker cache hit
+        bool fromServiceWorker = response.TryGetProperty("fromServiceWorker", out var fswProp) && fswProp.ValueKind == JsonValueKind.True;
+
+        // Extract securityDetails — TLS certificate info for HTTPS responses
+        CdpSecurityDetails? secDetails = null;
+        if (response.TryGetProperty("securityDetails", out var sdEl) && sdEl.ValueKind == JsonValueKind.Object)
+        {
+            secDetails = new CdpSecurityDetails
+            {
+                Protocol = sdEl.TryGetProperty("protocol", out var p2) ? p2.GetString() ?? "" : "",
+                Cipher = sdEl.TryGetProperty("cipher", out var c) ? c.GetString() ?? "" : "",
+                SubjectName = sdEl.TryGetProperty("subjectName", out var sn) ? sn.GetString() ?? "" : "",
+                Issuer = sdEl.TryGetProperty("issuer", out var iss) ? iss.GetString() ?? "" : "",
+                ValidFrom = sdEl.TryGetProperty("validFrom", out var vf) && vf.ValueKind == JsonValueKind.Number ? (long)vf.GetDouble() : 0,
+                ValidTo = sdEl.TryGetProperty("validTo", out var vt) && vt.ValueKind == JsonValueKind.Number ? (long)vt.GetDouble() : 0
+            };
+        }
+
         return new CdpResponseInfo
         {
             Status = response.GetProperty("status").GetInt64(),
@@ -312,7 +356,11 @@ internal sealed class RawCdpNetworkAdapter : ICdpNetworkAdapter
             Protocol = response.TryGetProperty("protocol", out var p) ? p.GetString() : null,
             MimeType = response.TryGetProperty("mimeType", out var mt) ? mt.GetString() : null,
             Headers = ParseHeaders(response),
-            Timing = timing
+            Timing = timing,
+            EncodedDataLength = encodedDataLength,
+            FromDiskCache = fromDiskCache,
+            FromServiceWorker = fromServiceWorker,
+            SecurityDetails = secDetails
         };
     }
 

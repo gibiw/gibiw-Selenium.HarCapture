@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest a new feature for Selenium.HarCapture
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature. Please describe your use case in detail so the proposal can be evaluated accurately.
+
+  - type: textarea
+    id: problem-use-case
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve, or what workflow do you want to enable? Be as specific as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or API change you would like to see. Include example code if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives-considered
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any alternative approaches or workarounds?
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other context, links, or references that support this request.
+    validations:
+      required: false
