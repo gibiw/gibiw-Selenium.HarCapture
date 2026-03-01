@@ -17,7 +17,7 @@
     <RepositoryUrl>https://github.com/gibiw/Selenium.HarCapture</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <PackageIcon>icon.png</PackageIcon>
     <Copyright>Copyright (c) Dmitry Gridnev 2026</Copyright>
     <PackageReleaseNotes>See full changelog at https://github.com/gibiw/Selenium.HarCapture/blob/main/CHANGELOG.md</PackageReleaseNotes>

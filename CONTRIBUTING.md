@@ -56,5 +56,3 @@ Integration tests require Google Chrome. Chrome runs in headless mode automatica
 ## Reporting Issues
 
 Please use the GitHub issue templates for [bug reports](https://github.com/gibiw/Selenium.HarCapture/issues/new?template=bug-report.yml) and [feature requests](https://github.com/gibiw/Selenium.HarCapture/issues/new?template=feature-request.yml).
-
-For security vulnerabilities, see [SECURITY.md](SECURITY.md).
